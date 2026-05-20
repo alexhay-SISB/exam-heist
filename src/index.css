@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-heist-dark text-white font-mono;
+    background-image:
+      radial-gradient(circle at 20% 50%, rgba(255, 215, 0, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 30%, rgba(220, 20, 60, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 50% 80%, rgba(138, 43, 226, 0.05) 0%, transparent 50%);
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-heist tracking-wider;
+  }
+}
+
+@layer components {
+  .btn-heist {
+    @apply px-6 py-3 bg-heist-gold text-black font-bold rounded-lg
+           hover:bg-yellow-300 transition-all duration-200
+           shadow-lg hover:shadow-yellow-500/50 transform hover:scale-105
+           uppercase tracking-wide;
+  }
+
+  .btn-danger {
+    @apply px-6 py-3 bg-heist-red text-white font-bold rounded-lg
+           hover:bg-red-600 transition-all duration-200
+           shadow-lg hover:shadow-red-500/50 transform hover:scale-105
+           uppercase tracking-wide;
+  }
+
+  .btn-ghost {
+    @apply px-6 py-3 border-2 border-heist-gold text-heist-gold font-bold rounded-lg
+           hover:bg-heist-gold hover:text-black transition-all duration-200
+           uppercase tracking-wide;
+  }
+
+  .card-heist {
+    @apply bg-black/60 backdrop-blur-md border border-heist-gold/30 rounded-xl p-6
+           shadow-2xl;
+  }
+
+  .input-heist {
+    @apply w-full px-4 py-3 bg-black/60 border-2 border-heist-gold/30
+           rounded-lg text-white placeholder-gray-500
+           focus:border-heist-gold focus:outline-none transition-colors;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-black;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-heist-gold/50 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-heist-gold;
+}
+
+/* Animated gradient background */
+.heist-bg {
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a0a1f 50%, #0f0a1a 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.heist-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 50px,
+      rgba(255, 215, 0, 0.03) 50px,
+      rgba(255, 215, 0, 0.03) 51px
+    );
+  pointer-events: none;
+}

@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Game sessions - anyone can read, only authenticated can write
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow write: if true;
+
+      match /players/{playerId} {
+        allow read: if true;
+        allow write: if true;
+      }
+
+      match /events/{eventId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+
+    // Question banks
+    match /questionBanks/{bankId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Class codes
+    match /classes/{classCode} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}
