@@ -77,12 +77,23 @@ export default function FeedbackModal({ result, question, onContinue }) {
 
           {/* Suggested answer */}
           {result.suggestedAnswer && (
-            <div className="bg-heist-gold/10 border border-heist-gold/30 rounded-lg p-4 mb-6">
+            <div className="bg-heist-gold/10 border border-heist-gold/30 rounded-lg p-4 mb-4">
               <div className="flex items-center gap-2 mb-2 text-heist-gold">
                 <BookOpen className="w-5 h-5" />
                 <span className="uppercase text-sm tracking-wider">Example Answer</span>
               </div>
               <p className="text-gray-200 text-sm italic">{result.suggestedAnswer}</p>
+            </div>
+          )}
+
+          {/* Marking notes (for full-marks tips) */}
+          {result.markingNotes && (
+            <div className="bg-heist-red/10 border border-heist-red/30 rounded-lg p-4 mb-6">
+              <div className="flex items-center gap-2 mb-2 text-heist-red">
+                <Lightbulb className="w-5 h-5" />
+                <span className="uppercase text-sm tracking-wider">For Full Marks</span>
+              </div>
+              <p className="text-gray-200 text-sm">{result.markingNotes}</p>
             </div>
           )}
 

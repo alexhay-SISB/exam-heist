@@ -39,7 +39,7 @@ export default function QuestionCard({ question, questionNumber, totalQuestions,
     onSubmit(answer);
   };
 
-  const isMultipleChoice = question.commandWord === 'Identify' && question.marks <= 2;
+  const isMultipleChoice = false;
 
   const topOpponentScore = opponents.length > 0
     ? Math.max(...opponents.map(o => o.score || 0))

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Trash2, Users, RefreshCw, ArrowLeft, Trophy, Eye } from 'lucide-react';
-import { extractTextFromPDF, parseExamPaper, parseAnswerKey } from '../utils/pdfParser';
-import { buildQuestionBank } from '../utils/questionGenerator';
+import { motion } from 'framer-motion';
+import { Upload, FileText, Trash2, Users, RefreshCw, ArrowLeft, Trophy, Download } from 'lucide-react';
+import { parseCSV, generateCSVTemplate, downloadCSV } from '../utils/csvParser';
+import { buildQuestionBankFromCSV } from '../utils/questionGenerator';
 import {
   saveQuestionBank,
   listQuestionBanks,
@@ -56,78 +56,49 @@ export default function TeacherDashboard() {
     }
   };
 
-  const handlePDFUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
+  const handleCSVUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
     setUploading(true);
-    setUploadStatus('🔍 Extracting text from PDF(s)...');
+    setUploadStatus(`📄 Reading ${file.name}...`);
 
     try {
-      // Allow uploading question paper + answer paper as two files
-      let examPages = [];
-      let answerPages = [];
+      const text = await file.text();
+      setUploadStatus('🔨 Parsing CSV...');
+      const rows = parseCSV(text);
 
-      for (const file of files) {
-        setUploadStatus(`📄 Reading ${file.name}...`);
-        const pages = await extractTextFromPDF(file);
-        const fullText = pages.join(' ');
+      setUploadStatus(`📚 Building question bank from ${rows.length} topics...`);
+      const concepts = buildQuestionBankFromCSV(rows);
 
-        // Detect if this is mark scheme/answer or question paper
-        if (/mark scheme|published|answer/i.test(fullText.slice(0, 1000))) {
-          answerPages = answerPages.length > 0 ? [...answerPages, ...pages] : pages;
-        } else {
-          examPages = examPages.length > 0 ? [...examPages, ...pages] : pages;
-        }
-
-        // If single file contains both
-        if (files.length === 1) {
-          const splitIdx = pages.findIndex(p => /mark scheme|published/i.test(p));
-          if (splitIdx > 0) {
-            examPages = pages.slice(0, splitIdx);
-            answerPages = pages.slice(splitIdx);
-          } else {
-            examPages = pages;
-          }
-        }
-      }
-
-      setUploadStatus('🧠 Identifying questions and concepts...');
-      const parsedExam = parseExamPaper(examPages);
-
-      setUploadStatus('📝 Parsing answer key...');
-      const parsedAnswers = answerPages.length > 0 ? parseAnswerKey(answerPages) : {};
-
-      setUploadStatus('🔨 Building question bank...');
-      const questionBank = buildQuestionBank(parsedExam, parsedAnswers);
-
-      if (questionBank.length === 0) {
-        throw new Error('No questions detected. Please check the PDF format.');
+      if (concepts.length === 0) {
+        throw new Error('No valid rows found in the CSV.');
       }
 
       const bankId = `bank_${Date.now()}`;
-      const bankName = files[0].name.replace('.pdf', '');
+      const bankName = file.name.replace(/\.csv$/i, '');
 
       await saveQuestionBank(bankId, {
         name: bankName,
-        questionCount: questionBank.length,
-        concepts: questionBank,
-        rawExam: parsedExam.map(cs => ({
-          caseStudyNumber: cs.caseStudyNumber,
-          businessContext: cs.businessContext,
-          questionCount: cs.questions.length
-        }))
+        questionCount: concepts.length,
+        concepts
       });
 
-      setUploadStatus(`✅ Created bank "${bankName}" with ${questionBank.length} concepts!`);
+      setUploadStatus(`✅ Created bank "${bankName}" with ${concepts.length} topics!`);
       await loadBanks();
-      setTimeout(() => setUploadStatus(''), 3000);
+      setTimeout(() => setUploadStatus(''), 4000);
     } catch (error) {
       console.error(error);
       setUploadStatus(`❌ Error: ${error.message}`);
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
+  };
+
+  const handleDownloadTemplate = () => {
+    const csv = generateCSVTemplate();
+    downloadCSV('exam-heist-template.csv', csv);
   };
 
   const handleStartClass = async () => {
@@ -207,30 +178,42 @@ export default function TeacherDashboard() {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          {/* PDF UPLOAD */}
+          {/* CSV UPLOAD */}
           <div className="card-heist">
             <h2 className="text-2xl text-heist-gold mb-4 flex items-center gap-2">
-              <Upload className="w-6 h-6" /> Upload Exam PDF(s)
+              <Upload className="w-6 h-6" /> Upload Topics CSV
             </h2>
             <p className="text-gray-400 mb-4 text-sm">
-              Upload exam paper + answer key (separate or combined). System auto-detects which is which.
+              Upload a CSV of topics with model answers and marking notes.
+              The game generates varied questions (Define / Identify / Explain / Justify…) around each topic.
             </p>
-            <label className="block">
-              <input
-                type="file"
-                accept=".pdf"
-                multiple
-                onChange={handlePDFUpload}
-                disabled={uploading}
-                className="hidden"
-              />
-              <div className={`btn-heist text-center cursor-pointer ${uploading ? 'opacity-50 cursor-wait' : ''}`}>
-                {uploading ? 'Processing...' : 'Choose PDF File(s)'}
-              </div>
-            </label>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleDownloadTemplate}
+                className="btn-ghost flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" /> Download CSV Template
+              </button>
+              <label className="block">
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCSVUpload}
+                  disabled={uploading}
+                  className="hidden"
+                />
+                <div className={`btn-heist text-center cursor-pointer ${uploading ? 'opacity-50 cursor-wait' : ''}`}>
+                  {uploading ? 'Processing...' : 'Upload CSV File'}
+                </div>
+              </label>
+            </div>
             {uploadStatus && (
               <div className="mt-4 p-3 bg-black/40 rounded text-sm">{uploadStatus}</div>
             )}
+            <div className="mt-4 text-xs text-gray-500">
+              Required columns: <code className="text-heist-gold">topic</code>, <code className="text-heist-gold">model_answer</code>.
+              Optional: <code>example_question</code>, <code>notes</code>, <code>difficulty</code> (EASY/MEDIUM/HARD/EXPERT).
+            </div>
           </div>
 
           {/* START CLASS */}
