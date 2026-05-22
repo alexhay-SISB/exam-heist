@@ -182,11 +182,10 @@ export default function QuestionCard({ question, questionNumber, totalQuestions,
 const getPlaceholder = (cmd) => {
   switch (cmd) {
     case 'Define':   return 'Write a precise definition — or illustrate the concept with an example (e.g. with numbers)...';
-    case 'Identify': return 'List your answers — separate each with a "." "/" or a new line.';
-    case 'State':    return 'List your answers — separate each with a "." "/" or a new line.';
-    case 'Outline':  return 'Give reasons AND reference the business. Separate each item with "." "/" or a new line.';
-    case 'Explain':  return 'Give methods AND develop each one with cause-and-effect. Separate items with "." "/" or a new line.';
-    case 'Justify':  return 'Take a position, compare alternatives, and justify WHY...';
+    case 'Identify': return 'List your answers briefly — separate each with "." "/" or a new line.';
+    case 'Outline':  return 'Give brief reasons and reference the business. Separate each item with "." "/" or a new line.';
+    case 'Explain':  return 'Give reasons AND develop each one with cause-and-effect linked to the business. Separate items with "." "/" or a new line.';
+    case 'Justify':  return 'Take a position, compare alternatives, and justify WHY. Cover both sides for full marks.';
     default:         return 'Write your answer here...';
   }
 };

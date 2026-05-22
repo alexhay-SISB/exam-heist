@@ -27,28 +27,29 @@ const BUSINESS_TEMPLATES = [
   { name: 'WEB', type: 'web design agency', sector: 'tertiary', size: 'small', employees: 14, years: 6 }
 ];
 
+// Only the 5 command words actually used in the IGCSE Business paper:
+// Define · Identify · Outline · Explain · Justify
 const TEMPLATES_BY_DIFFICULTY = {
   EASY: [
-    { command: 'Define', marks: 2, build: (t) => `Define '${t}'.` },
+    { command: 'Define',   marks: 2, build: (t) => `Define '${t}'.` },
     { command: 'Identify', marks: 2, build: (t) => `Identify two ${t}.` },
-    { command: 'State', marks: 2, build: (t) => `State two examples of ${t}.` }
+    { command: 'Identify', marks: 2, build: (t) => `Identify two examples of ${t}.` }
   ],
   MEDIUM: [
     { command: 'Outline', marks: 3, build: (t, b) => `Outline one example of ${t} for ${b.name}.` },
     { command: 'Outline', marks: 4, build: (t) => `Outline two types of ${t}.` },
-    { command: 'Describe', marks: 4, build: (t, b) => `Describe how ${t} could be used by ${b.name}.` }
+    { command: 'Outline', marks: 4, build: (t, b) => `Outline how ${t} could be used by ${b.name}.` }
   ],
   HARD: [
     { command: 'Explain', marks: 6, build: (t, b) => `Explain two ${t} that ${b.name} could use.` },
     { command: 'Explain', marks: 6, build: (t, b) => `Explain two advantages of ${t} for ${b.name}.` },
     { command: 'Explain', marks: 6, build: (t, b) => `Explain two disadvantages of ${t} for ${b.name}.` },
-    { command: 'Analyse', marks: 6, build: (t, b) => `Analyse how ${t} might affect ${b.name}.` }
+    { command: 'Explain', marks: 6, build: (t, b) => `Explain how ${t} might affect ${b.name}.` }
   ],
   EXPERT: [
     { command: 'Justify', marks: 6, build: (t, b) => `Do you think ${t} is the best approach for ${b.name}? Justify your answer.` },
-    { command: 'Discuss', marks: 8, build: (t, b) => `Discuss whether ${b.name} should rely on ${t}.` },
-    { command: 'Evaluate', marks: 8, build: (t, b) => `Evaluate the use of ${t} by ${b.name}.` },
-    { command: 'Recommend', marks: 6, build: (t, b) => `Recommend whether ${b.name} should focus on ${t}. Justify your answer.` }
+    { command: 'Justify', marks: 6, build: (t, b) => `Do you think ${b.name} should focus on ${t}? Justify your answer.` },
+    { command: 'Justify', marks: 8, build: (t, b) => `Do you think ${b.name} should rely on ${t}? Justify your answer.` }
   ]
 };
 
@@ -148,21 +149,14 @@ const detectCategory = (exampleQuestion) => {
 };
 
 // Which template command words can use which concept categories.
-// Define is strict — only true definition concepts may feed it.
+// Only the 5 actual IGCSE Business command words. Define is strict —
+// only true definition concepts may feed it.
 const TEMPLATE_CAT_COMPAT = {
-  Define:    ['definition'],
-  Identify:  ['list', 'explanation', 'evaluation'],
-  State:     ['list', 'explanation', 'evaluation'],
-  Outline:   ['list', 'explanation', 'evaluation'],
-  Describe:  ['list', 'explanation', 'evaluation'],
-  Explain:   ['explanation', 'evaluation', 'list'],
-  Analyse:   ['explanation', 'evaluation'],
-  Justify:   ['evaluation', 'explanation'],
-  Discuss:   ['evaluation', 'explanation'],
-  Evaluate:  ['evaluation', 'explanation'],
-  Recommend: ['evaluation', 'explanation'],
-  Calculate: ['explanation', 'evaluation', 'list'],
-  Suggest:   ['explanation', 'evaluation']
+  Define:   ['definition'],
+  Identify: ['list', 'explanation', 'evaluation'],
+  Outline:  ['list', 'explanation', 'evaluation'],
+  Explain:  ['explanation', 'evaluation', 'list'],
+  Justify:  ['evaluation', 'explanation']
 };
 
 // Does this row's notes column ask for business context?
@@ -216,19 +210,19 @@ export const buildQuestionBankFromCSV = (csvRows) => {
 };
 
 // Map a question's leading command word to the gameplay command + marks.
+// Past papers occasionally use Describe / State / Analyse / Discuss / etc;
+// we collapse those into the 5 command words actually used in the exam:
+//   Define · Identify · Outline · Explain · Justify
 const commandFromText = (text, fallbackMarks) => {
   const lower = (text || '').toLowerCase().trim();
   if (lower.startsWith('define'))                                 return { commandWord: 'Define',   marks: fallbackMarks ?? 2 };
   if (/^(identify|state|list|name)\b/.test(lower))                return { commandWord: 'Identify', marks: fallbackMarks ?? 2 };
-  if (lower.startsWith('outline'))                                return { commandWord: 'Outline',  marks: fallbackMarks ?? 4 };
-  if (lower.startsWith('describe'))                               return { commandWord: 'Describe', marks: fallbackMarks ?? 4 };
-  if (lower.startsWith('analyse'))                                return { commandWord: 'Analyse',  marks: fallbackMarks ?? 6 };
-  if (lower.startsWith('discuss'))                                return { commandWord: 'Discuss',  marks: fallbackMarks ?? 8 };
-  if (lower.startsWith('evaluate'))                               return { commandWord: 'Evaluate', marks: fallbackMarks ?? 8 };
-  if (lower.startsWith('recommend'))                              return { commandWord: 'Recommend',marks: fallbackMarks ?? 6 };
+  if (/^(outline|describe)\b/.test(lower))                        return { commandWord: 'Outline',  marks: fallbackMarks ?? 4 };
+  if (/^(explain|analyse|analyze)\b/.test(lower))                 return { commandWord: 'Explain',  marks: fallbackMarks ?? 6 };
   if (lower.startsWith('justify') || /justify your answer/i.test(lower))
                                                                   return { commandWord: 'Justify',  marks: fallbackMarks ?? 6 };
-  if (lower.startsWith('do you think'))                           return { commandWord: 'Justify',  marks: fallbackMarks ?? 6 };
+  if (/^(discuss|evaluate|recommend|consider|do you think)\b/.test(lower))
+                                                                  return { commandWord: 'Justify',  marks: fallbackMarks ?? 6 };
   return { commandWord: 'Explain', marks: fallbackMarks ?? 6 };
 };
 
@@ -507,17 +501,11 @@ const getGamePoints = (difficulty) => ({
 const generateLearningFeedback = (question) => {
   const cmd = question.commandWord;
   const base = {
-    Define: 'DEFINE wants the meaning of the term. A precise definition is best, but a clear example demonstrating the concept (e.g. with numbers) also earns marks.',
+    Define:   'DEFINE wants the meaning of the term. A precise definition is best, but a clear example demonstrating the concept (e.g. with numbers) also earns marks.',
     Identify: 'IDENTIFY asks for clear items, listed in short form. Separate each item with a full stop, "/" or a new line.',
-    State: 'STATE asks you to list items briefly without explanation. Separate each item with a full stop, "/" or a new line.',
-    Outline: 'OUTLINE means short reasons or steps. Reference the business for full marks.',
-    Describe: 'DESCRIBE asks you to give detail about how/what happens.',
-    Explain: 'EXPLAIN needs methods/reasons AND development with cause-and-effect chains.',
-    Analyse: 'ANALYSE means break the topic down and explore impacts on the business.',
-    Justify: 'JUSTIFY needs a clear position, with reasons WHY it is best (and why alternatives are weaker).',
-    Discuss: 'DISCUSS needs both sides — strengths and weaknesses — then a judgement.',
-    Evaluate: 'EVALUATE needs strengths, weaknesses, and a reasoned conclusion using context.',
-    Recommend: 'RECOMMEND needs a clear choice with developed reasons linked to the business.'
+    Outline:  'OUTLINE means short reasons or steps with a brief development. Reference the business for full marks. Separate each point with "." "/" or a new line.',
+    Explain:  'EXPLAIN needs methods/reasons AND development with cause-and-effect chains. Reference the business for full marks. Separate each point with "." "/" or a new line.',
+    Justify:  'JUSTIFY needs a clear position, with reasons WHY it is best AND why alternatives are weaker. Both sides for full marks.'
   }[cmd] || 'Review the key concepts and try again.';
   return base;
 };
