@@ -10,10 +10,44 @@ export const parseCSV = (text) => {
   }
 
   const headers = parseRow(lines[0]).map(h => normalizeHeader(h));
+
+  // ── Auto-detect the definitions CSV format ──
+  // Columns: `key term, definition, unit` (e.g. the 312 IGCSE vocab terms).
+  // Transform each row into a standard definition concept on the fly so the
+  // rest of the pipeline doesn't have to care which file it came from.
+  const isDefinitionsCSV =
+    headers.includes('key_term') && headers.includes('definition');
+
+  if (isDefinitionsCSV) {
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseRow(lines[i]);
+      if (values.every(v => !v.trim())) continue;
+      const obj = {};
+      headers.forEach((h, idx) => { obj[h] = (values[idx] || '').trim(); });
+      if (!obj.key_term || !obj.definition) continue;
+      rows.push({
+        topic: obj.key_term,
+        example_question: `Define '${obj.key_term}'.`,
+        model_answer: obj.definition,
+        notes: '',
+        difficulty: 'EASY',
+        marks: '2',
+        category: 'definition',
+        source: obj.unit ? `unit-${obj.unit}` : 'definitions'
+      });
+    }
+    if (rows.length === 0) {
+      throw new Error('No valid rows found in definitions CSV. Each row needs a key term and definition.');
+    }
+    return rows;
+  }
+
+  // ── Standard question-bank CSV ──
   const required = ['topic', 'model_answer'];
   for (const req of required) {
     if (!headers.includes(req)) {
-      throw new Error(`Missing required column: "${req}". Expected columns: topic, model_answer, notes, example_question, difficulty`);
+      throw new Error(`Missing required column: "${req}". Expected columns: topic, model_answer, notes, example_question, difficulty, marks, category. (Definitions CSV format is also accepted: key_term, definition, unit.)`);
     }
   }
 

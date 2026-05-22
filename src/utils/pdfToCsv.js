@@ -721,7 +721,7 @@ export const parsePdfToRows = async (input) => {
  * Build CSV text from edited rows.
  */
 export const rowsToCSV = (rows) => {
-  const headers = ['question_number', 'topic', 'example_question', 'model_answer', 'notes', 'difficulty', 'marks'];
+  const headers = ['question_number', 'topic', 'example_question', 'model_answer', 'notes', 'difficulty', 'marks', 'category', 'source'];
   const csvEscape = (v) => {
     const s = String(v || '');
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
@@ -739,7 +739,9 @@ export const rowsToCSV = (rows) => {
       csvEscape(row.modelAnswer),
       csvEscape(row.notes),
       csvEscape(row.difficulty || 'MEDIUM'),
-      csvEscape(row.marks || '')
+      csvEscape(row.marks || ''),
+      csvEscape(row.category || ''),
+      csvEscape(row.source || '')
     ].join(','));
   }
   return lines.join('\n');

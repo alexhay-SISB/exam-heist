@@ -81,103 +81,269 @@ const buildKeywords = (text) => {
     .map(([w]) => w);
 };
 
+// ────────────────────────────────────────────────────────────────────
+//  Business-code anonymisation + category tagging
+//
+//  Past-paper questions reference a specific business by a 3-5 letter
+//  acronym (TCH, DCN, DSY, OSR…). For replay variety, we strip the code
+//  from the question + answer + notes and replace it with `{BUSINESS}`,
+//  then substitute a randomly picked fictional business at game time.
+// ────────────────────────────────────────────────────────────────────
+
+// Tokens that look like business codes but aren't — never anonymise these.
+const BUSINESS_CODE_BLACKLIST = new Set([
+  // Syllabus acronyms
+  'USP','JIT','TQM','GDP','ROCE','PLC','LTD','SME','SMES','CSR','CEO','CFO','COO','HRM','MD','VAT',
+  'AGM','CSR','PEST','SWOT','SMART','SAAS','PAYE','GAAP','EBIT','EBITDA','APR','TUC','AMRT',
+  // Geo/orgs
+  'UK','USA','EU','UN','US','OECD','WTO','NGO','OPEC','NAFTA','ASEAN','MNC','MNCS','FDI','IMF','WHO',
+  // Mark scheme jargon
+  'OFR','APP','ANL','EVAL','MARK','MARKS','NOTE','NOTES','TOTAL','POINTS','MAX','MIN','REF','OWN',
+  'AWARD','CREDIT','ACCEPT','REJECT','NEW','OLD',
+  // Common stop-word style all-caps
+  'THE','AND','BUT','NOT','FOR','HAS','HOW','OWN','OUT','WAY','TWO','ONE','BIG','TOP','ALL',
+  'BEEN','HAVE','MAKE','MORE','MOST','MUST','NEED','ONCE','ONLY','SOME','SUCH','THAN',
+  'THEN','THEY','VERY','WHAT','WHEN','WHERE','WHICH','WHILE','WILL','WITH','WORK','YEAR',
+  'BUSINESS','PRODUCT','MARKET','GROWTH','BRAND','PROFIT','SALES'
+]);
+
+// Find 3-5 letter all-caps tokens that look like business codes.
+const detectBusinessCodes = (text) => {
+  if (!text) return [];
+  const tokens = text.match(/\b[A-Z]{3,5}\b/g) || [];
+  const found = new Set();
+  for (const t of tokens) {
+    if (BUSINESS_CODE_BLACKLIST.has(t)) continue;
+    found.add(t);
+  }
+  return [...found];
+};
+
+// Replace every occurrence of any code in `codes` with `{BUSINESS}`.
+const anonymiseCodes = (text, codes) => {
+  if (!text || !codes.length) return text || '';
+  let out = text;
+  for (const code of codes) {
+    out = out.replace(new RegExp(`\\b${code}\\b`, 'g'), '{BUSINESS}');
+  }
+  return out;
+};
+
+// Substitute `{BUSINESS}` placeholders with a chosen business name.
+const substituteBusiness = (text, name) =>
+  (text || '').replace(/\{BUSINESS\}/g, name);
+
+// Decide a concept's category from its example_question command word.
+// Drives template matching at campaign-generation time so Define prompts
+// only pull from definition concepts, etc.
+const detectCategory = (exampleQuestion) => {
+  const q = (exampleQuestion || '').trim().toLowerCase();
+  if (!q) return 'explanation';
+  if (/^define\b/.test(q)) return 'definition';
+  if (/^(identify|state|list|name)\b/.test(q)) return 'list';
+  if (/^outline\b/.test(q)) return 'list';
+  if (/^(explain|analyse|describe)\b/.test(q)) return 'explanation';
+  if (/^(do\s+you\s+think|justify|discuss|evaluate|recommend|consider)\b/.test(q)) return 'evaluation';
+  return 'explanation';
+};
+
+// Which template command words can use which concept categories.
+// Define is strict — only true definition concepts may feed it.
+const TEMPLATE_CAT_COMPAT = {
+  Define:    ['definition'],
+  Identify:  ['list', 'explanation', 'evaluation'],
+  State:     ['list', 'explanation', 'evaluation'],
+  Outline:   ['list', 'explanation', 'evaluation'],
+  Describe:  ['list', 'explanation', 'evaluation'],
+  Explain:   ['explanation', 'evaluation', 'list'],
+  Analyse:   ['explanation', 'evaluation'],
+  Justify:   ['evaluation', 'explanation'],
+  Discuss:   ['evaluation', 'explanation'],
+  Evaluate:  ['evaluation', 'explanation'],
+  Recommend: ['evaluation', 'explanation'],
+  Calculate: ['explanation', 'evaluation', 'list'],
+  Suggest:   ['explanation', 'evaluation']
+};
+
+// Does this row's notes column ask for business context?
+const wantsContext = (notes) =>
+  /reference\s+the\s+business/i.test(notes || '');
+
 /**
  * Build a question bank from parsed CSV rows.
- * Each row becomes a CONCEPT (topic + answer + notes + optional example).
+ * - Auto-detects category from example_question (Define/Identify/…)
+ * - Strips business codes from past-paper rows that require context and
+ *   replaces them with the `{BUSINESS}` placeholder.
+ * - Stores both the textbook keywords and the original difficulty/marks.
  */
 export const buildQuestionBankFromCSV = (csvRows) => {
   return csvRows.map((row, idx) => {
     const difficulty = validDifficulty(row.difficulty);
-    // Pick up an explicit marks column from PDF-derived CSVs. Falls back to
-    // null so generateQuestion can decide a sensible default per template.
     const marksRaw = parseInt(row.marks, 10);
     const marks = Number.isFinite(marksRaw) && marksRaw > 0 ? marksRaw : null;
+
+    const explicitCategory = (row.category || '').toLowerCase().trim();
+    const category = ['definition','list','explanation','evaluation'].includes(explicitCategory)
+      ? explicitCategory
+      : detectCategory(row.example_question);
+
+    // Anonymise any business code that appears in the question. We look in
+    // the question text (most reliable signal) and apply the same swap to
+    // the answer, notes, and topic so they all stay consistent.
+    const codes = detectBusinessCodes(row.example_question);
+    const needsContext = wantsContext(row.notes) || codes.length > 0;
+
+    const exampleQuestion = anonymiseCodes(row.example_question, codes);
+    const modelAnswer    = anonymiseCodes(row.model_answer, codes);
+    const topic          = anonymiseCodes(row.topic, codes);
+    const notes          = anonymiseCodes(row.notes, codes);
+
     return {
       id: `concept_${Date.now()}_${idx}`,
-      topic: row.topic,
-      modelAnswer: row.model_answer,
-      notes: row.notes || '',
-      exampleQuestion: row.example_question || '',
+      topic,
+      modelAnswer,
+      notes,
+      exampleQuestion,
       preferredDifficulty: difficulty,
       preferredMarks: marks,
-      keywords: buildKeywords(`${row.model_answer} ${row.topic}`)
+      category,
+      requiresContext: needsContext,
+      anonymised: codes.length > 0,
+      anonymisedCodes: codes,
+      keywords: buildKeywords(`${modelAnswer} ${topic}`)
     };
   });
 };
 
-/**
- * Generate a single varied question from a concept.
- */
-export const generateQuestion = (concept, forcedDifficulty = null) => {
-  const business = pickRandom(BUSINESS_TEMPLATES);
-  const difficulty = forcedDifficulty || concept.preferredDifficulty || pickRandom(['EASY', 'MEDIUM', 'HARD', 'EXPERT']);
+// Map a question's leading command word to the gameplay command + marks.
+const commandFromText = (text, fallbackMarks) => {
+  const lower = (text || '').toLowerCase().trim();
+  if (lower.startsWith('define'))                                 return { commandWord: 'Define',   marks: fallbackMarks ?? 2 };
+  if (/^(identify|state|list|name)\b/.test(lower))                return { commandWord: 'Identify', marks: fallbackMarks ?? 2 };
+  if (lower.startsWith('outline'))                                return { commandWord: 'Outline',  marks: fallbackMarks ?? 4 };
+  if (lower.startsWith('describe'))                               return { commandWord: 'Describe', marks: fallbackMarks ?? 4 };
+  if (lower.startsWith('analyse'))                                return { commandWord: 'Analyse',  marks: fallbackMarks ?? 6 };
+  if (lower.startsWith('discuss'))                                return { commandWord: 'Discuss',  marks: fallbackMarks ?? 8 };
+  if (lower.startsWith('evaluate'))                               return { commandWord: 'Evaluate', marks: fallbackMarks ?? 8 };
+  if (lower.startsWith('recommend'))                              return { commandWord: 'Recommend',marks: fallbackMarks ?? 6 };
+  if (lower.startsWith('justify') || /justify your answer/i.test(lower))
+                                                                  return { commandWord: 'Justify',  marks: fallbackMarks ?? 6 };
+  if (lower.startsWith('do you think'))                           return { commandWord: 'Justify',  marks: fallbackMarks ?? 6 };
+  return { commandWord: 'Explain', marks: fallbackMarks ?? 6 };
+};
 
-  // ~25% of the time, use the teacher's original example question (with business name swap)
-  let questionText, commandWord, marks;
-  if (concept.exampleQuestion && Math.random() < 0.25) {
-    questionText = concept.exampleQuestion.replace(/\b[A-Z]{2,5}\b/g, business.name);
-    const lower = questionText.toLowerCase();
-    if (lower.startsWith('define')) { commandWord = 'Define'; marks = 2; }
-    else if (lower.startsWith('identify') || lower.startsWith('state')) { commandWord = 'Identify'; marks = 2; }
-    else if (lower.startsWith('outline')) { commandWord = 'Outline'; marks = 4; }
-    else if (lower.startsWith('justify') || lower.includes('justify your answer')) { commandWord = 'Justify'; marks = 6; }
-    else if (lower.startsWith('discuss')) { commandWord = 'Discuss'; marks = 8; }
-    else if (lower.startsWith('evaluate')) { commandWord = 'Evaluate'; marks = 8; }
-    else { commandWord = 'Explain'; marks = 6; }
+/**
+ * Generate a single playable question from a concept.
+ * - For ANONYMISED past-paper concepts, we always reuse the original
+ *   example_question (because the model answer is tuned to it) and just
+ *   inject a fresh business name + auto context paragraph.
+ * - For pristine concepts (no business code), we apply one of the templates.
+ */
+export const generateQuestion = (concept, forcedDifficulty = null, forcedTemplate = null) => {
+  const business = pickRandom(BUSINESS_TEMPLATES);
+
+  // Anonymised concepts MUST keep their original phrasing because the answer
+  // was written for that specific question. Pristine concepts use templates.
+  const useOriginalQ = concept.anonymised && concept.exampleQuestion;
+
+  let questionText, commandWord, marks, difficulty;
+
+  if (useOriginalQ) {
+    questionText = concept.exampleQuestion;
+    const cmd = commandFromText(questionText, concept.preferredMarks);
+    commandWord = cmd.commandWord;
+    marks       = cmd.marks;
+    difficulty  = forcedDifficulty || concept.preferredDifficulty || 'HARD';
+  } else if (concept.exampleQuestion && Math.random() < 0.30 && !forcedTemplate) {
+    // Occasionally use the teacher's original wording for variety
+    questionText = concept.exampleQuestion;
+    const cmd = commandFromText(questionText, concept.preferredMarks);
+    commandWord = cmd.commandWord;
+    marks       = cmd.marks;
+    difficulty  = forcedDifficulty || concept.preferredDifficulty || 'MEDIUM';
   } else {
-    const template = pickRandom(TEMPLATES_BY_DIFFICULTY[difficulty]);
+    difficulty = forcedDifficulty || concept.preferredDifficulty || pickRandom(['EASY','MEDIUM','HARD','EXPERT']);
+    const template = forcedTemplate || pickRandom(TEMPLATES_BY_DIFFICULTY[difficulty]);
     questionText = template.build(concept.topic, business);
-    commandWord = template.command;
-    marks = template.marks;
+    commandWord  = template.command;
+    marks        = template.marks;
   }
 
-  // If the concept came from a PDF with explicit marks AND we used the
-  // teacher's example_question (which preserves the original marks intent),
-  // prefer that. Templated questions keep their template marks.
-  const finalMarks = (concept.preferredMarks && questionText === concept.exampleQuestion?.replace(/\b[A-Z]{2,5}\b/g, business.name))
-    ? concept.preferredMarks
-    : marks;
+  // Inject the picked business name into every placeholder.
+  questionText            = substituteBusiness(questionText, business.name);
+  const finalTopic        = substituteBusiness(concept.topic, business.name);
+  const finalModelAnswer  = substituteBusiness(concept.modelAnswer, business.name);
+  const finalNotes        = substituteBusiness(concept.notes, business.name);
+
+  const requiresContext = concept.requiresContext || marks >= 4;
 
   return {
     id: `q_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
-    topic: concept.topic,
+    topic: finalTopic,
     commandWord,
-    marks: finalMarks,
+    marks,
     difficulty,
     business,
     businessContext: generateBusinessContext(business),
     questionText,
-    modelAnswer: concept.modelAnswer,
-    notes: concept.notes,
+    modelAnswer: finalModelAnswer,
+    notes: finalNotes,
     expectedKeywords: concept.keywords,
-    requiresContext: finalMarks >= 4
+    requiresContext
   };
 };
 
 /**
  * Build a full campaign: ~47 questions across difficulty tiers.
- * Each concept contributes questions across difficulties so the same topic
- * gets tested in multiple ways.
+ * Each slot picks a template AND a category-compatible concept, so Define
+ * prompts only pull from definition concepts and Explain answers don't
+ * end up under Define-style questions.
  */
 export const generateCampaign = (concepts) => {
   if (!concepts || concepts.length === 0) return [];
 
+  // Group concepts by category for fast lookup
+  const byCategory = { definition: [], list: [], explanation: [], evaluation: [] };
+  for (const c of concepts) {
+    const cat = byCategory[c.category] ? c.category : 'explanation';
+    byCategory[cat].push(c);
+  }
+
   const campaign = [];
   const tiers = [
-    { difficulty: 'EASY', count: 12 },
+    { difficulty: 'EASY',   count: 12 },
     { difficulty: 'MEDIUM', count: 15 },
-    { difficulty: 'HARD', count: 12 },
+    { difficulty: 'HARD',   count: 12 },
     { difficulty: 'EXPERT', count: 8 }
   ];
 
   for (const tier of tiers) {
     for (let i = 0; i < tier.count; i++) {
-      const concept = pickRandom(concepts);
-      campaign.push(generateQuestion(concept, tier.difficulty));
+      // Try templates in shuffled order, pick the first one with concepts.
+      const templates = [...TEMPLATES_BY_DIFFICULTY[tier.difficulty]];
+      templates.sort(() => Math.random() - 0.5);
+
+      let chosenTemplate = null, chosenConcept = null;
+      for (const t of templates) {
+        const compat = TEMPLATE_CAT_COMPAT[t.command] || ['explanation'];
+        const pool = compat.flatMap(cat => byCategory[cat] || []);
+        if (pool.length === 0) continue;
+        chosenTemplate = t;
+        chosenConcept  = pickRandom(pool);
+        break;
+      }
+
+      // Fallback: no compatible concept for any template in this tier —
+      // pick any concept and let generateQuestion decide.
+      if (!chosenConcept) {
+        chosenConcept = pickRandom(concepts);
+        chosenTemplate = null;
+      }
+
+      campaign.push(generateQuestion(chosenConcept, tier.difficulty, chosenTemplate));
     }
   }
 
-  // Shuffle within difficulty tiers so the same topic doesn't repeat back-to-back
   return campaign;
 };
 

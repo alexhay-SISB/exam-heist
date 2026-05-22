@@ -34,7 +34,9 @@ const deriveSource = (file) => {
     .slice(0, 40);
 };
 
-// Minimal CSV parser for the Import-CSV button. Handles quoted fields.
+// Minimal CSV parser for the Import-CSV button. Handles quoted fields, the
+// standard question-bank format, AND the definitions CSV format
+// (`key term, definition, unit`).
 const parseCSV = (text) => {
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (lines.length < 2) return [];
@@ -52,22 +54,42 @@ const parseCSV = (text) => {
     out.push(cur);
     return out;
   };
-  const headers = splitRow(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const headers = splitRow(lines[0]).map(h => h.trim().toLowerCase().replace(/[\s-]+/g, '_'));
+
+  const isDefs = headers.includes('key_term') && headers.includes('definition');
+
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const vals = splitRow(lines[i]);
     const obj = {};
     headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim(); });
-    rows.push({
-      label: obj.question_number || obj.label || '',
-      topic: obj.topic || '',
-      exampleQuestion: obj.example_question || obj.exampleQuestion || '',
-      modelAnswer: obj.model_answer || obj.modelAnswer || '',
-      notes: obj.notes || '',
-      difficulty: (obj.difficulty || 'MEDIUM').toUpperCase(),
-      marks: obj.marks || '',
-      source: obj.source || 'imported-csv'
-    });
+
+    if (isDefs) {
+      if (!obj.key_term || !obj.definition) continue;
+      rows.push({
+        label: '',
+        topic: obj.key_term,
+        exampleQuestion: `Define '${obj.key_term}'.`,
+        modelAnswer: obj.definition,
+        notes: '',
+        difficulty: 'EASY',
+        marks: '2',
+        category: 'definition',
+        source: obj.unit ? `unit-${obj.unit}` : 'definitions'
+      });
+    } else {
+      rows.push({
+        label: obj.question_number || obj.label || '',
+        topic: obj.topic || '',
+        exampleQuestion: obj.example_question || obj.exampleQuestion || '',
+        modelAnswer: obj.model_answer || obj.modelAnswer || '',
+        notes: obj.notes || '',
+        difficulty: (obj.difficulty || 'MEDIUM').toUpperCase(),
+        marks: obj.marks || '',
+        category: (obj.category || '').toLowerCase(),
+        source: obj.source || 'imported-csv'
+      });
+    }
   }
   return rows.filter(r => r.topic || r.exampleQuestion || r.modelAnswer);
 };
