@@ -13,7 +13,7 @@ export default function LandingPage() {
         transition={{ duration: 0.8 }}
         className="text-center mb-12"
       >
-        <h1 className="text-7xl md:text-9xl font-heist text-heist-gold mb-4 tracking-widest drop-shadow-[0_0_20px_rgba(255,215,0,0.5)]">
+        <h1 className="text-7xl md:text-9xl font-heist text-gradient mb-4 tracking-tight drop-shadow-[0_0_24px_rgba(167,139,250,0.45)]">
           EXAM HEIST
         </h1>
         <p className="text-xl md:text-2xl text-gray-300 max-w-2xl mx-auto">

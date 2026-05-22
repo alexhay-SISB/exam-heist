@@ -88,6 +88,10 @@ const buildKeywords = (text) => {
 export const buildQuestionBankFromCSV = (csvRows) => {
   return csvRows.map((row, idx) => {
     const difficulty = validDifficulty(row.difficulty);
+    // Pick up an explicit marks column from PDF-derived CSVs. Falls back to
+    // null so generateQuestion can decide a sensible default per template.
+    const marksRaw = parseInt(row.marks, 10);
+    const marks = Number.isFinite(marksRaw) && marksRaw > 0 ? marksRaw : null;
     return {
       id: `concept_${Date.now()}_${idx}`,
       topic: row.topic,
@@ -95,6 +99,7 @@ export const buildQuestionBankFromCSV = (csvRows) => {
       notes: row.notes || '',
       exampleQuestion: row.example_question || '',
       preferredDifficulty: difficulty,
+      preferredMarks: marks,
       keywords: buildKeywords(`${row.model_answer} ${row.topic}`)
     };
   });
@@ -126,11 +131,18 @@ export const generateQuestion = (concept, forcedDifficulty = null) => {
     marks = template.marks;
   }
 
+  // If the concept came from a PDF with explicit marks AND we used the
+  // teacher's example_question (which preserves the original marks intent),
+  // prefer that. Templated questions keep their template marks.
+  const finalMarks = (concept.preferredMarks && questionText === concept.exampleQuestion?.replace(/\b[A-Z]{2,5}\b/g, business.name))
+    ? concept.preferredMarks
+    : marks;
+
   return {
     id: `q_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
     topic: concept.topic,
     commandWord,
-    marks,
+    marks: finalMarks,
     difficulty,
     business,
     businessContext: generateBusinessContext(business),
@@ -138,7 +150,7 @@ export const generateQuestion = (concept, forcedDifficulty = null) => {
     modelAnswer: concept.modelAnswer,
     notes: concept.notes,
     expectedKeywords: concept.keywords,
-    requiresContext: marks >= 4
+    requiresContext: finalMarks >= 4
   };
 };
 
@@ -169,14 +181,68 @@ export const generateCampaign = (concepts) => {
   return campaign;
 };
 
+// Split a student answer into discrete items.
+// Per spec: separators are period, forward slash, and newline. Semicolons
+// and common list-prefix markers (1. / 1) / (1) / a) / - / •) are also
+// handled gracefully so the student doesn't get penalised for tidy lists.
+const splitIntoSegments = (text) => {
+  if (!text) return [];
+  return text
+    .split(/[.\n\/;]+/)
+    .map(s => s
+      .replace(/^\s*[\(\[]?\s*\d+\s*[\)\]\.\:]\s*/, '')   // "1.", "(1)", "1)"
+      .replace(/^\s*[\(\[]?\s*[a-h]\s*[\)\]\.\:]\s*/i, '') // "a)", "(a)"
+      .replace(/^[-•*\s]+/, '')                            // bullets
+      .trim()
+    )
+    .filter(s => s.length >= 3);
+};
+
+// How many items the question asks for (Identify two, Outline three, etc.)
+const detectRequiredCount = (questionText) => {
+  if (!questionText) return 1;
+  const m = questionText.toLowerCase().match(/\b(two|three|four|five|six|2|3|4|5|6)\b/);
+  if (!m) return 1;
+  const map = { two: 2, three: 3, four: 4, five: 5, six: 6 };
+  return map[m[1]] || parseInt(m[1], 10) || 1;
+};
+
+const isDefineQuestion = (question) =>
+  question.commandWord === 'Define' || /^\s*define\b/i.test(question.questionText || '');
+
+// Concrete-example signals. Cambridge mark schemes credit a definition that
+// is illustrated by an example, even if the abstract definition isn't spelled
+// out in textbook form.
+const hasExampleMarkers = (answer) => {
+  if (!answer) return false;
+  if (/\b(for\s+example|for\s+instance|e\.?\s*g\.?|such\s+as|like|including|imagine|suppose|when|where|if)\b/i.test(answer)) return true;
+  if (/\$\s*\d|\d+\s*%|\d+\s*(dollars?|pounds?|euros?|cents?|years?|employees?|customers?|units?|items?|products?|hours?|days?|months?|kg|g|kilo)/i.test(answer)) return true;
+  if (/\d+\s*(=|\+|-|–|—|to|×|\*|x)\s*\d+/.test(answer)) return true; // 5-2=3, 10 to 15, etc.
+  return false;
+};
+
+const topicTouched = (answer, topic) => {
+  if (!topic) return false;
+  const al = (answer || '').toLowerCase();
+  const tl = topic.toLowerCase();
+  if (al.includes(tl)) return true;
+  const tWords = tl.split(/\s+/).filter(w => w.length >= 4);
+  return tWords.some(w => al.includes(w));
+};
+
 /**
  * Score the student's answer using the model answer and notes.
  * - Compares keyword coverage against the model answer
+ * - For "two things" questions, splits the student's answer on . / or newline
+ *   and credits per-segment
+ * - For Define questions, also credits an illustrative example that
+ *   demonstrates the concept (per Cambridge mark scheme practice)
  * - If the question requires context (marks>=4), bonus credit for using the
  *   business name / context details (driven by the teacher's notes column).
  */
 export const scoreAnswer = (studentAnswer, question) => {
-  const answer = (studentAnswer || '').toLowerCase().trim();
+  const raw = studentAnswer || '';
+  const answer = raw.toLowerCase().trim();
 
   if (answer.length < 5) {
     return {
@@ -195,6 +261,34 @@ export const scoreAnswer = (studentAnswer, question) => {
 
   const totalKeywords = Math.max(keywords.length, 1);
   let coverage = keywordsHit.length / totalKeywords;
+
+  // ── Multi-item question: "Identify two…", "Outline two…", "Explain two…" ──
+  // Split the answer on the separators the user specified (. / newline) plus
+  // graceful handling of semicolons and list prefixes. Each segment is checked
+  // for at least one expected keyword; coverage is segments-hit / required.
+  const requiredCount = detectRequiredCount(question.questionText);
+  let itemsCoverage = null;
+  if (requiredCount >= 2) {
+    const segments = splitIntoSegments(raw);
+    if (segments.length > 0) {
+      const segmentsWithKeyword = segments.filter(seg => {
+        const sl = seg.toLowerCase();
+        return keywords.some(kw => sl.includes(kw.toLowerCase()));
+      }).length;
+      itemsCoverage = Math.min(1, segmentsWithKeyword / requiredCount);
+      // Use whichever scoring is more generous — overall coverage or per-item.
+      coverage = Math.max(coverage, itemsCoverage);
+    }
+  }
+
+  // ── Define question: an illustrative example counts ──
+  // Cambridge allows a definition to be evidenced by an example demonstrating
+  // the concept. If the student's answer contains an example marker AND
+  // touches the topic, credit them even when textbook keywords are missing.
+  if (isDefineQuestion(question) && hasExampleMarkers(answer) && topicTouched(answer, question.topic)) {
+    const boosted = keywordsHit.length > 0 ? 0.7 : 0.5;
+    coverage = Math.max(coverage, boosted);
+  }
 
   // Context bonus: if the question requires context and the student references the business
   let usedContext = false;
@@ -247,9 +341,9 @@ const getGamePoints = (difficulty) => ({
 const generateLearningFeedback = (question) => {
   const cmd = question.commandWord;
   const base = {
-    Define: 'DEFINE wants a precise technical definition. No examples, no business context — just the meaning.',
-    Identify: 'IDENTIFY asks for clear items, listed in short form.',
-    State: 'STATE asks you to list items briefly without explanation.',
+    Define: 'DEFINE wants the meaning of the term. A precise definition is best, but a clear example demonstrating the concept (e.g. with numbers) also earns marks.',
+    Identify: 'IDENTIFY asks for clear items, listed in short form. Separate each item with a full stop, "/" or a new line.',
+    State: 'STATE asks you to list items briefly without explanation. Separate each item with a full stop, "/" or a new line.',
     Outline: 'OUTLINE means short reasons or steps. Reference the business for full marks.',
     Describe: 'DESCRIBE asks you to give detail about how/what happens.',
     Explain: 'EXPLAIN needs methods/reasons AND development with cause-and-effect chains.',

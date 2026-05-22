@@ -36,6 +36,12 @@ export default function FeedbackModal({ result, question, onContinue }) {
                 <p className="text-lg mt-2 text-gray-400">No points this round</p>
               </>
             )}
+            {result.extraTimeUses > 0 && (
+              <p className="text-sm mt-2 text-amber-300">
+                Extra Time used {result.extraTimeUses}× — {result.extraTimePenalty} pts deducted
+                ({result.extraTimeUses} {result.extraTimeUses === 1 ? 'mark' : 'marks'})
+              </p>
+            )}
           </div>
 
           {/* Feedback */}

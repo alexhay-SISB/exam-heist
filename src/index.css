@@ -2,89 +2,187 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────
+   Modern blue/violet theme. The `heist-*` class names are preserved so
+   no component code has to change, but every visual is redesigned for
+   a sleek, readable, glassmorphic look.
+   ────────────────────────────────────────────────────────────────────── */
+
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-heist-dark text-white font-mono;
+    @apply text-slate-100 font-sans antialiased;
+    background-color: #0a0e1a;
     background-image:
-      radial-gradient(circle at 20% 50%, rgba(255, 215, 0, 0.08) 0%, transparent 50%),
-      radial-gradient(circle at 80% 30%, rgba(220, 20, 60, 0.08) 0%, transparent 50%),
-      radial-gradient(circle at 50% 80%, rgba(138, 43, 226, 0.05) 0%, transparent 50%);
+      radial-gradient(ellipse 80% 60% at 12% 8%,   rgba(99, 102, 241, 0.22) 0%, transparent 60%),
+      radial-gradient(ellipse 70% 50% at 88% 18%,  rgba(217, 70, 239, 0.16) 0%, transparent 60%),
+      radial-gradient(ellipse 90% 70% at 50% 95%,  rgba(56, 189, 248, 0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 70%,  rgba(139, 92, 246, 0.14) 0%, transparent 60%);
+    background-attachment: fixed;
     min-height: 100vh;
   }
 
+  /* Subtle starfield overlay — adds depth without being noisy */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      radial-gradient(1px 1px at 20px 30px,   rgba(255,255,255,0.18), transparent),
+      radial-gradient(1px 1px at 60px 80px,   rgba(255,255,255,0.10), transparent),
+      radial-gradient(1px 1px at 110px 50px,  rgba(255,255,255,0.14), transparent),
+      radial-gradient(1px 1px at 170px 120px, rgba(255,255,255,0.10), transparent);
+    background-size: 200px 200px;
+    opacity: 0.4;
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
   h1, h2, h3, h4 {
-    @apply font-heist tracking-wider;
+    @apply font-heist tracking-tight;
+  }
+
+  ::selection {
+    background: rgba(167, 139, 250, 0.35);
+    color: white;
   }
 }
 
 @layer components {
+  /* Primary action — gradient indigo → violet → fuchsia */
   .btn-heist {
-    @apply px-6 py-3 bg-heist-gold text-black font-bold rounded-lg
-           hover:bg-yellow-300 transition-all duration-200
-           shadow-lg hover:shadow-yellow-500/50 transform hover:scale-105
-           uppercase tracking-wide;
+    @apply relative inline-flex items-center justify-center
+           px-6 py-3 rounded-xl font-semibold tracking-wide
+           text-white font-sans
+           transition-all duration-200
+           shadow-[0_4px_24px_-6px_rgba(139,92,246,0.55)]
+           hover:shadow-[0_6px_30px_-4px_rgba(139,92,246,0.75)]
+           hover:-translate-y-0.5
+           active:translate-y-0
+           focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-950;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+    background-size: 200% 200%;
+    background-position: 0% 50%;
+  }
+  .btn-heist:hover {
+    background-position: 100% 50%;
   }
 
+  /* Danger button — rose */
   .btn-danger {
-    @apply px-6 py-3 bg-heist-red text-white font-bold rounded-lg
-           hover:bg-red-600 transition-all duration-200
-           shadow-lg hover:shadow-red-500/50 transform hover:scale-105
-           uppercase tracking-wide;
+    @apply inline-flex items-center justify-center
+           px-6 py-3 rounded-xl font-semibold tracking-wide text-white font-sans
+           transition-all duration-200
+           shadow-[0_4px_24px_-6px_rgba(244,63,94,0.55)]
+           hover:shadow-[0_6px_30px_-4px_rgba(244,63,94,0.75)]
+           hover:-translate-y-0.5 active:translate-y-0
+           focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 focus:ring-offset-slate-950;
+    background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
   }
 
+  /* Ghost/outlined secondary */
   .btn-ghost {
-    @apply px-6 py-3 border-2 border-heist-gold text-heist-gold font-bold rounded-lg
-           hover:bg-heist-gold hover:text-black transition-all duration-200
-           uppercase tracking-wide;
+    @apply inline-flex items-center justify-center
+           px-6 py-3 rounded-xl font-semibold tracking-wide font-sans
+           text-violet-300
+           bg-white/[0.02] backdrop-blur-sm
+           border border-violet-400/30
+           hover:bg-violet-500/10 hover:border-violet-400/60 hover:text-violet-100
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-violet-400/40;
   }
 
+  /* Glass card */
   .card-heist {
-    @apply bg-black/60 backdrop-blur-md border border-heist-gold/30 rounded-xl p-6
-           shadow-2xl;
+    @apply relative rounded-2xl p-6
+           bg-slate-900/60 backdrop-blur-xl
+           border border-white/[0.08]
+           shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)];
+  }
+  .card-heist::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(167,139,250,0.4), rgba(99,102,241,0.05) 40%, rgba(217,70,239,0.3));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0.7;
   }
 
+  /* Input */
   .input-heist {
-    @apply w-full px-4 py-3 bg-black/60 border-2 border-heist-gold/30
-           rounded-lg text-white placeholder-gray-500
-           focus:border-heist-gold focus:outline-none transition-colors;
+    @apply w-full px-4 py-3 rounded-xl
+           bg-slate-950/50 backdrop-blur-sm
+           border border-slate-700/60
+           text-slate-100 placeholder-slate-500 font-sans
+           transition-all duration-150
+           focus:border-violet-400/70 focus:bg-slate-900/60
+           focus:outline-none focus:ring-2 focus:ring-violet-400/30;
   }
+
+  /* Helpers */
+  .text-gradient {
+    background: linear-gradient(135deg, #a78bfa 0%, #d946ef 50%, #38bdf8 100%);
+    -webkit-background-clip: text;
+            background-clip: text;
+    color: transparent;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+           text-xs font-medium font-sans
+           bg-white/5 border border-white/10;
+  }
+  .badge-violet  { @apply bg-violet-500/15  border-violet-400/30  text-violet-200; }
+  .badge-cyan    { @apply bg-cyan-500/15    border-cyan-400/30    text-cyan-200; }
+  .badge-fuchsia { @apply bg-fuchsia-500/15 border-fuchsia-400/30 text-fuchsia-200; }
+  .badge-rose    { @apply bg-rose-500/15    border-rose-400/30    text-rose-200; }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-black;
-}
-
+/* Scrollbar */
+::-webkit-scrollbar      { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
 ::-webkit-scrollbar-thumb {
-  @apply bg-heist-gold/50 rounded;
+  background: linear-gradient(180deg, #6366f1, #8b5cf6);
+  border-radius: 8px;
+  border: 2px solid #0a0e1a;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-heist-gold;
+  background: linear-gradient(180deg, #818cf8, #a78bfa);
 }
 
-/* Animated gradient background */
+/* .heist-bg — used on landing/hero areas */
 .heist-bg {
-  background: linear-gradient(135deg, #0a0a0f 0%, #1a0a1f 50%, #0f0a1a 100%);
   position: relative;
   overflow: hidden;
+  background:
+    radial-gradient(ellipse at top,          #1e1b4b 0%, transparent 60%),
+    radial-gradient(ellipse at bottom right, #2e1065 0%, transparent 60%),
+    linear-gradient(180deg, #0a0e1a 0%, #0f172a 100%);
 }
-
 .heist-bg::before {
   content: '';
   position: absolute;
   inset: 0;
+  pointer-events: none;
   background-image:
     repeating-linear-gradient(
       90deg,
       transparent,
-      transparent 50px,
-      rgba(255, 215, 0, 0.03) 50px,
-      rgba(255, 215, 0, 0.03) 51px
+      transparent 60px,
+      rgba(167, 139, 250, 0.04) 60px,
+      rgba(167, 139, 250, 0.04) 61px
     );
-  pointer-events: none;
 }

@@ -214,6 +214,15 @@ export default function TeacherDashboard() {
               Required columns: <code className="text-heist-gold">topic</code>, <code className="text-heist-gold">model_answer</code>.
               Optional: <code>example_question</code>, <code>notes</code>, <code>difficulty</code> (EASY/MEDIUM/HARD/EXPERT).
             </div>
+            <div className="mt-3 pt-3 border-t border-gray-700 text-sm">
+              <span className="text-gray-400">Have a PDF exam paper? </span>
+              <button
+                onClick={() => navigate('/converter')}
+                className="text-heist-gold hover:underline"
+              >
+                Use the PDF → CSV Converter →
+              </button>
+            </div>
           </div>
 
           {/* START CLASS */}

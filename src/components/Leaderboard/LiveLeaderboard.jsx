@@ -12,18 +12,18 @@ export default function LiveLeaderboard({ players = [], currentPlayerId = null, 
   }
 
   const getRankIcon = (rank) => {
-    if (rank === 0) return <Crown className="w-6 h-6 text-yellow-400" />;
-    if (rank === 1) return <Medal className="w-6 h-6 text-gray-300" />;
-    if (rank === 2) return <Award className="w-6 h-6 text-orange-400" />;
-    return <span className="text-gray-500 font-bold w-6 text-center">{rank + 1}</span>;
+    if (rank === 0) return <Crown className="w-6 h-6 text-violet-300 drop-shadow-[0_0_8px_rgba(167,139,250,0.6)]" />;
+    if (rank === 1) return <Medal className="w-6 h-6 text-indigo-300" />;
+    if (rank === 2) return <Award className="w-6 h-6 text-fuchsia-300" />;
+    return <span className="text-slate-500 font-semibold w-6 text-center">{rank + 1}</span>;
   };
 
   const getRankColor = (rank, isCurrent) => {
-    if (isCurrent) return 'border-heist-neon bg-heist-neon/10 shadow-[0_0_15px_rgba(57,255,20,0.3)]';
-    if (rank === 0) return 'border-yellow-400 bg-yellow-400/5';
-    if (rank === 1) return 'border-gray-300 bg-gray-300/5';
-    if (rank === 2) return 'border-orange-400 bg-orange-400/5';
-    return 'border-gray-700';
+    if (isCurrent) return 'border-cyan-400/60 bg-cyan-500/10 shadow-[0_0_18px_rgba(34,211,238,0.35)]';
+    if (rank === 0) return 'border-violet-400/50 bg-violet-500/10';
+    if (rank === 1) return 'border-indigo-400/40 bg-indigo-500/[0.06]';
+    if (rank === 2) return 'border-fuchsia-400/40 bg-fuchsia-500/[0.06]';
+    return 'border-slate-700/60 bg-slate-900/30';
   };
 
   return (

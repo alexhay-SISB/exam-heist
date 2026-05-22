@@ -4,6 +4,7 @@ import TeacherDashboard from './pages/TeacherDashboard';
 import StudentLobby from './pages/StudentLobby';
 import GamePlay from './pages/GamePlay';
 import GameResults from './pages/GameResults';
+import PdfConverter from './pages/PdfConverter';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/join" element={<StudentLobby />} />
         <Route path="/play/:classCode/:playerId" element={<GamePlay />} />
         <Route path="/results/:classCode/:playerId" element={<GameResults />} />
+        <Route path="/converter" element={<PdfConverter />} />
       </Routes>
     </div>
   );

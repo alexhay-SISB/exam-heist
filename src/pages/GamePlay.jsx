@@ -82,22 +82,41 @@ export default function GamePlay() {
   const opponents = leaderboard.filter(p => p.id !== playerId);
   const me = leaderboard.find(p => p.id === playerId);
 
-  const handleSubmitAnswer = async (answer) => {
+  const handleSubmitAnswer = async (submission) => {
+    // QuestionCard now passes { answer, extraTimeUses } so we can dock points
+    // for each Extra Time press (1 mark of the question's value per press).
+    const { answer, extraTimeUses = 0 } = (typeof submission === 'string')
+      ? { answer: submission, extraTimeUses: 0 }
+      : submission;
+
     const result = scoreAnswer(answer, currentQuestion);
 
-    if (result.correct) {
-      sound.playCorrect();
-    } else {
-      sound.playWrong();
-    }
+    // Mark penalty: each press = -1 mark of this question's value, where
+    // 1 mark ≈ GAME_POINTS[difficulty] / question.marks.
+    const GAME_POINTS = { EASY: 40, MEDIUM: 60, HARD: 100, EXPERT: 160 };
+    const totalMarks = currentQuestion.marks && currentQuestion.marks > 0 ? currentQuestion.marks : 4;
+    const maxPoints = GAME_POINTS[currentQuestion.difficulty] || 60;
+    const pointsPerMark = Math.round(maxPoints / totalMarks);
+    const penalty = extraTimeUses * pointsPerMark;
+    const finalPoints = Math.max(0, result.pointsAwarded - penalty);
 
-    await updatePlayerScore(classCode, playerId, result.pointsAwarded, {
-      correct: result.correct,
-      wrong: !result.correct,
+    const adjusted = {
+      ...result,
+      pointsAwarded: finalPoints,
+      extraTimeUses,
+      extraTimePenalty: penalty
+    };
+
+    if (adjusted.correct) sound.playCorrect();
+    else                  sound.playWrong();
+
+    await updatePlayerScore(classCode, playerId, adjusted.pointsAwarded, {
+      correct: adjusted.correct,
+      wrong: !adjusted.correct,
       questionsCompleted: 1
     });
 
-    setFeedback({ ...result, question: currentQuestion });
+    setFeedback({ ...adjusted, question: currentQuestion });
   };
 
   const handleFeedbackContinue = () => {
