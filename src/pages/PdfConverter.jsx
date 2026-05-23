@@ -17,6 +17,7 @@ const blankRow = () => ({
   notes: '',
   difficulty: 'MEDIUM',
   marks: '',
+  unit: '',
   source: ''
 });
 
@@ -74,6 +75,7 @@ const parseCSV = (text) => {
         notes: '',
         difficulty: 'EASY',
         marks: '2',
+        unit: obj.unit || '',
         category: 'definition',
         source: obj.unit ? `unit-${obj.unit}` : 'definitions'
       });
@@ -86,6 +88,7 @@ const parseCSV = (text) => {
         notes: obj.notes || '',
         difficulty: (obj.difficulty || 'MEDIUM').toUpperCase(),
         marks: obj.marks || '',
+        unit: obj.unit || '',
         category: (obj.category || '').toLowerCase(),
         source: obj.source || 'imported-csv'
       });
@@ -521,6 +524,7 @@ export default function PdfConverter() {
                     <th className="p-2 font-semibold w-48">Notes</th>
                     <th className="p-2 font-semibold w-24">Difficulty</th>
                     <th className="p-2 font-semibold w-16" title="Drives timer: marks × 90s">Marks</th>
+                    <th className="p-2 font-semibold w-16" title="Syllabus unit 1-6 (used by teacher's unit filter)">Unit</th>
                     <th className="p-2 w-10"></th>
                   </tr>
                 </thead>
@@ -607,6 +611,18 @@ export default function PdfConverter() {
                             className="w-full p-2 bg-slate-950/40 rounded-lg text-white text-sm font-mono border border-slate-700 focus:border-violet-400 focus:outline-none text-center"
                             placeholder="—"
                             title="Drives timer: marks × 90s"
+                          />
+                        </td>
+                        <td className="p-1">
+                          <input
+                            type="number"
+                            min="1"
+                            max="6"
+                            value={row.unit || ''}
+                            onChange={(e) => updateRow(i, 'unit', e.target.value)}
+                            className="w-full p-2 bg-slate-950/40 rounded-lg text-violet-300 text-sm font-mono border border-slate-700 focus:border-violet-400 focus:outline-none text-center"
+                            placeholder="—"
+                            title="Syllabus unit (1-6)"
                           />
                         </td>
                         <td className="p-1 text-center">

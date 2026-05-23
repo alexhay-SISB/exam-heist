@@ -176,6 +176,11 @@ export const buildQuestionBankFromCSV = (csvRows) => {
     const marksRaw = parseInt(row.marks, 10);
     const marks = Number.isFinite(marksRaw) && marksRaw > 0 ? marksRaw : null;
 
+    // IGCSE Business has 6 syllabus units. Tag each concept so the teacher
+    // can later filter the game by unit.
+    const unitRaw = parseInt(row.unit, 10);
+    const unit = Number.isFinite(unitRaw) && unitRaw >= 1 && unitRaw <= 6 ? unitRaw : null;
+
     const explicitCategory = (row.category || '').toLowerCase().trim();
     const category = ['definition','list','explanation','evaluation'].includes(explicitCategory)
       ? explicitCategory
@@ -201,12 +206,23 @@ export const buildQuestionBankFromCSV = (csvRows) => {
       preferredDifficulty: difficulty,
       preferredMarks: marks,
       category,
+      unit,
       requiresContext: needsContext,
       anonymised: codes.length > 0,
       anonymisedCodes: codes,
       keywords: buildKeywords(`${modelAnswer} ${topic}`)
     };
   });
+};
+
+// IGCSE Business syllabus unit labels (used by the teacher dashboard)
+export const UNIT_LABELS = {
+  1: 'Understanding business activity',
+  2: 'People in business',
+  3: 'Marketing',
+  4: 'Operations management',
+  5: 'Financial information and decisions',
+  6: 'External influences on business activity'
 };
 
 // Map a question's leading command word to the gameplay command + marks.
@@ -292,13 +308,25 @@ export const generateQuestion = (concept, forcedDifficulty = null, forcedTemplat
  * Each slot picks a template AND a category-compatible concept, so Define
  * prompts only pull from definition concepts and Explain answers don't
  * end up under Define-style questions.
+ *
+ * options.unitFilter — optional array of syllabus units (1..6). If
+ * non-empty, only concepts tagged with one of those units are eligible;
+ * concepts with no unit tag are excluded.
  */
-export const generateCampaign = (concepts) => {
+export const generateCampaign = (concepts, options = {}) => {
   if (!concepts || concepts.length === 0) return [];
+
+  const { unitFilter = null } = options;
+  let pool = concepts;
+  if (Array.isArray(unitFilter) && unitFilter.length > 0) {
+    const allowed = new Set(unitFilter.map(Number));
+    pool = concepts.filter(c => c.unit && allowed.has(c.unit));
+    if (pool.length === 0) return []; // unit selection has no content
+  }
 
   // Group concepts by category for fast lookup
   const byCategory = { definition: [], list: [], explanation: [], evaluation: [] };
-  for (const c of concepts) {
+  for (const c of pool) {
     const cat = byCategory[c.category] ? c.category : 'explanation';
     byCategory[cat].push(c);
   }
@@ -320,17 +348,17 @@ export const generateCampaign = (concepts) => {
       let chosenTemplate = null, chosenConcept = null;
       for (const t of templates) {
         const compat = TEMPLATE_CAT_COMPAT[t.command] || ['explanation'];
-        const pool = compat.flatMap(cat => byCategory[cat] || []);
-        if (pool.length === 0) continue;
+        const matched = compat.flatMap(cat => byCategory[cat] || []);
+        if (matched.length === 0) continue;
         chosenTemplate = t;
-        chosenConcept  = pickRandom(pool);
+        chosenConcept  = pickRandom(matched);
         break;
       }
 
       // Fallback: no compatible concept for any template in this tier —
-      // pick any concept and let generateQuestion decide.
+      // pick any concept from the (already unit-filtered) pool.
       if (!chosenConcept) {
-        chosenConcept = pickRandom(concepts);
+        chosenConcept = pickRandom(pool);
         chosenTemplate = null;
       }
 

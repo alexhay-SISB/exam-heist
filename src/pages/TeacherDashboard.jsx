@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Upload, FileText, Trash2, Users, RefreshCw, ArrowLeft, Trophy, Download } from 'lucide-react';
 import { parseCSV, generateCSVTemplate, downloadCSV } from '../utils/csvParser';
-import { buildQuestionBankFromCSV } from '../utils/questionGenerator';
+import { buildQuestionBankFromCSV, UNIT_LABELS } from '../utils/questionGenerator';
 import {
   saveQuestionBank,
   listQuestionBanks,
@@ -25,6 +25,7 @@ export default function TeacherDashboard() {
   const [classCode, setClassCode] = useState('');
   const [activeClass, setActiveClass] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [selectedUnits, setSelectedUnits] = useState([]); // [] = all units
 
   useEffect(() => {
     if (authenticated) loadBanks();
@@ -107,12 +108,28 @@ export default function TeacherDashboard() {
       return;
     }
     try {
-      await createClass(classCode.toUpperCase(), selectedBank.id, 'Teacher');
+      await createClass(classCode.toUpperCase(), selectedBank.id, 'Teacher', selectedUnits);
       setActiveClass(classCode.toUpperCase());
     } catch (e) {
       alert('Failed to start class: ' + e.message);
     }
   };
+
+  // Count concepts per unit for the selected bank — drives unit checkboxes.
+  const unitCounts = useMemo(() => {
+    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, untagged: 0 };
+    if (!selectedBank?.concepts) return counts;
+    for (const c of selectedBank.concepts) {
+      if (c.unit >= 1 && c.unit <= 6) counts[c.unit]++;
+      else counts.untagged++;
+    }
+    return counts;
+  }, [selectedBank]);
+
+  const toggleUnit = (u) =>
+    setSelectedUnits(prev => prev.includes(u) ? prev.filter(x => x !== u) : [...prev, u].sort());
+  const selectAllUnits = () => setSelectedUnits([1, 2, 3, 4, 5, 6]);
+  const clearUnits     = () => setSelectedUnits([]);
 
   const handleResetClass = async () => {
     if (!activeClass) return;
@@ -242,6 +259,58 @@ export default function TeacherDashboard() {
               <div className="text-xs text-gray-400">
                 Selected bank: {selectedBank ? selectedBank.name : '(none — pick below)'}
               </div>
+
+              {/* Unit filter */}
+              <div className="rounded-xl border border-violet-400/20 bg-violet-500/[0.04] p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold text-violet-200">
+                    Syllabus units {selectedUnits.length > 0 ? `(${selectedUnits.length} selected)` : '(all)'}
+                  </div>
+                  <div className="flex gap-2 text-xs">
+                    <button onClick={selectAllUnits} className="text-violet-300 hover:text-violet-100 underline">All</button>
+                    <button onClick={clearUnits}     className="text-violet-300 hover:text-violet-100 underline">All (no filter)</button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {[1, 2, 3, 4, 5, 6].map(u => {
+                    const count = unitCounts[u];
+                    const checked = selectedUnits.includes(u);
+                    const empty = selectedBank && count === 0;
+                    return (
+                      <label
+                        key={u}
+                        className={`flex items-center justify-between gap-2 p-2 rounded-lg cursor-pointer transition-colors
+                          ${checked ? 'bg-violet-500/15 border border-violet-400/40' : 'bg-slate-950/30 border border-slate-700/40 hover:border-violet-400/30'}
+                          ${empty ? 'opacity-50' : ''}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleUnit(u)}
+                            className="accent-violet-400"
+                          />
+                          <span className="font-mono text-violet-300 text-sm">U{u}</span>
+                          <span className="text-sm text-slate-200 truncate">{UNIT_LABELS[u]}</span>
+                        </div>
+                        {selectedBank && (
+                          <span className="text-xs text-slate-400 font-mono flex-shrink-0">{count}</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                  {selectedBank && unitCounts.untagged > 0 && (
+                    <div className="text-xs text-amber-300 italic pl-2 pt-1">
+                      ⚠ {unitCounts.untagged} concept{unitCounts.untagged === 1 ? '' : 's'} in this bank have no unit tag —
+                      they'll be excluded whenever any units are selected.
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2 text-xs text-slate-500">
+                  Empty selection = no filter (all units played).
+                </div>
+              </div>
+
               <button onClick={handleStartClass} className="btn-heist w-full">
                 START / RESUME CLASS
               </button>
@@ -249,7 +318,12 @@ export default function TeacherDashboard() {
                 <div className="text-center text-heist-neon">
                   ✅ Class active: <strong>{activeClass}</strong>
                   <br />
-                  <span className="text-sm text-gray-400">Students join at /join with this code</span>
+                  <span className="text-sm text-gray-400">
+                    Students join at /join with this code
+                    {selectedUnits.length > 0 && (
+                      <> · Units: {selectedUnits.join(', ')}</>
+                    )}
+                  </span>
                 </div>
               )}
             </div>

@@ -18,11 +18,12 @@ import { db } from './config';
 
 // ============ CLASS & SESSION MANAGEMENT ============
 
-export const createClass = async (classCode, questionBankId, teacherName) => {
+export const createClass = async (classCode, questionBankId, teacherName, unitFilter = []) => {
   await setDoc(doc(db, 'classes', classCode), {
     code: classCode,
     questionBankId,
     teacherName,
+    unitFilter,          // array of syllabus unit numbers (1..6); [] = all units
     createdAt: serverTimestamp(),
     active: true
   });

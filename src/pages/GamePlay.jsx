@@ -52,7 +52,18 @@ export default function GamePlay() {
           return;
         }
 
-        const generated = generateCampaign(bank.concepts);
+        const generated = generateCampaign(bank.concepts, {
+          unitFilter: classData.unitFilter || []
+        });
+        if (generated.length === 0) {
+          alert(
+            classData.unitFilter?.length
+              ? `No questions found for the selected units in this bank. Ask your teacher to either pick different units or use a bank that covers them.`
+              : 'No questions available. Ask your teacher.'
+          );
+          navigate('/');
+          return;
+        }
         setCampaign(generated);
         setLoading(false);
         sound.playBackground();
