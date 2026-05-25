@@ -33,6 +33,7 @@ export const parseCSV = (text) => {
         notes: '',
         difficulty: 'EASY',
         marks: '2',
+        unit: obj.unit || '',          // ← pass unit through so the filter works
         category: 'definition',
         source: obj.unit ? `unit-${obj.unit}` : 'definitions'
       });
@@ -44,12 +45,14 @@ export const parseCSV = (text) => {
   }
 
   // ── Standard question-bank CSV ──
-  const required = ['topic', 'model_answer'];
-  for (const req of required) {
-    if (!headers.includes(req)) {
-      throw new Error(`Missing required column: "${req}". Expected columns: topic, model_answer, notes, example_question, difficulty, marks, category. (Definitions CSV format is also accepted: key_term, definition, unit.)`);
-    }
+  // `topic` is preferred but optional — if missing we fall back to
+  // deriving a short topic label from `example_question` so that CSVs
+  // exported directly from the PDF converter (which have example_question
+  // but no separate topic column) still work without modification.
+  if (!headers.includes('model_answer')) {
+    throw new Error('Missing required column: "model_answer". Expected columns: topic (or example_question), model_answer, notes, difficulty, marks, unit. Definitions format also accepted: key_term, definition, unit.');
   }
+  const hasTopicCol = headers.includes('topic');
 
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
@@ -57,7 +60,12 @@ export const parseCSV = (text) => {
     if (values.every(v => !v.trim())) continue;
     const row = {};
     headers.forEach((h, idx) => { row[h] = (values[idx] || '').trim(); });
-    if (!row.topic || !row.model_answer) continue;
+    if (!row.model_answer) continue;
+    // If no explicit topic column, derive a clean label from example_question.
+    if (!hasTopicCol || !row.topic) {
+      row.topic = deriveTopicFromQuestion(row.example_question);
+    }
+    if (!row.topic) continue;   // skip rows with nothing to identify the concept
     rows.push(row);
   }
 
@@ -69,6 +77,35 @@ export const parseCSV = (text) => {
 };
 
 const normalizeHeader = (h) => h.toLowerCase().trim().replace(/[\s-]+/g, '_');
+
+/**
+ * Extract a short topic label from an exam-question string.
+ * Used when the CSV has an `example_question` column but no separate `topic`.
+ *   "Define 'dismissal'."              → "dismissal"
+ *   "Identify two pricing methods."    → "pricing methods"
+ *   "Explain two advantages of X …"   → "advantages of X"
+ *   "Do you think X is the best …"    → "X"
+ */
+const deriveTopicFromQuestion = (q) => {
+  if (!q) return '';
+  // Define 'Term' / Define "Term"
+  let m = q.match(/^define\s+['"]([^'"]+)['"]/i);
+  if (m) return m[1].trim();
+  // Identify/State/List/Name [number] <topic>
+  m = q.match(/^(?:identify|state|list|name)\s+(?:two|one|four|three|several|the\s+\w+)?\s*(.+?)(?:\.|,|$)/i);
+  if (m) return m[1].trim();
+  // Outline [number] <topic>
+  m = q.match(/^outline\s+(?:two|one|four|three)?\s*(.+?)(?:\.|,|$)/i);
+  if (m) return m[1].trim();
+  // Explain [number] <topic>  (number + trailing space are one optional group)
+  m = q.match(/^explain\s+(?:(?:two|one|four|three)\s+)?(.+?)(?:\.|,|$)/i);
+  if (m) return m[1].trim();
+  // Do you think <topic> is/are …
+  m = q.match(/^do you think\s+(.+?)\s+(?:is|are|was|were)\b/i);
+  if (m) return m[1].trim();
+  // Fallback: first 60 chars, strip trailing punctuation
+  return q.slice(0, 60).replace(/[.,?!]$/, '').trim();
+};
 
 const parseRow = (line) => {
   const result = [];
