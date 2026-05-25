@@ -19,9 +19,6 @@ export default function LandingPage() {
         <p className="text-xl md:text-2xl text-gray-300 max-w-2xl mx-auto">
           The high-stakes revision game where knowledge is currency and rivals are targets.
         </p>
-        <div className="mt-6 inline-block px-4 py-2 bg-heist-red/20 border border-heist-red rounded text-heist-red text-sm uppercase tracking-wider">
-          ⚠ Top secret: For IGCSE thieves only
-        </div>
       </motion.div>
 
       <motion.div

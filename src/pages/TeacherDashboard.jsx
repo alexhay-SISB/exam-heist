@@ -21,7 +21,7 @@ export default function TeacherDashboard() {
   const [questionBanks, setQuestionBanks] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
-  const [selectedBank, setSelectedBank] = useState(null);
+  const [selectedBankIds, setSelectedBankIds] = useState([]);   // ← multi-select
   const [classCode, setClassCode] = useState('');
   const [activeClass, setActiveClass] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
@@ -103,28 +103,49 @@ export default function TeacherDashboard() {
   };
 
   const handleStartClass = async () => {
-    if (!selectedBank || !classCode) {
-      alert('Select a question bank and enter a class code');
+    if (selectedBankIds.length === 0 || !classCode) {
+      alert('Select at least one question bank and enter a class code');
       return;
     }
     try {
-      await createClass(classCode.toUpperCase(), selectedBank.id, 'Teacher', selectedUnits);
+      await createClass(classCode.toUpperCase(), selectedBankIds, 'Teacher', selectedUnits);
       setActiveClass(classCode.toUpperCase());
     } catch (e) {
       alert('Failed to start class: ' + e.message);
     }
   };
 
-  // Count concepts per unit for the selected bank — drives unit checkboxes.
+  const toggleBank = (bankId) =>
+    setSelectedBankIds(prev => prev.includes(bankId)
+      ? prev.filter(id => id !== bankId)
+      : [...prev, bankId]);
+  const selectAllBanks = () => setSelectedBankIds(questionBanks.map(b => b.id));
+  const clearBanks     = () => setSelectedBankIds([]);
+
+  // The currently selected bank objects (in dashboard order).
+  const selectedBanks = useMemo(
+    () => questionBanks.filter(b => selectedBankIds.includes(b.id)),
+    [questionBanks, selectedBankIds]
+  );
+
+  // Combined concept count across all selected banks.
+  const totalSelectedConcepts = useMemo(
+    () => selectedBanks.reduce((n, b) => n + (b.concepts?.length || b.questionCount || 0), 0),
+    [selectedBanks]
+  );
+
+  // Count concepts per unit across ALL selected banks — drives unit checkboxes.
   const unitCounts = useMemo(() => {
     const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, untagged: 0 };
-    if (!selectedBank?.concepts) return counts;
-    for (const c of selectedBank.concepts) {
-      if (c.unit >= 1 && c.unit <= 6) counts[c.unit]++;
-      else counts.untagged++;
+    for (const bank of selectedBanks) {
+      if (!bank.concepts) continue;
+      for (const c of bank.concepts) {
+        if (c.unit >= 1 && c.unit <= 6) counts[c.unit]++;
+        else counts.untagged++;
+      }
     }
     return counts;
-  }, [selectedBank]);
+  }, [selectedBanks]);
 
   const toggleUnit = (u) =>
     setSelectedUnits(prev => prev.includes(u) ? prev.filter(x => x !== u) : [...prev, u].sort());
@@ -257,7 +278,11 @@ export default function TeacherDashboard() {
                 maxLength={20}
               />
               <div className="text-xs text-gray-400">
-                Selected bank: {selectedBank ? selectedBank.name : '(none — pick below)'}
+                {selectedBanks.length === 0
+                  ? 'Selected banks: (none — pick below)'
+                  : selectedBanks.length === 1
+                    ? `Selected bank: ${selectedBanks[0].name}`
+                    : `${selectedBanks.length} banks selected · ${totalSelectedConcepts} concepts combined`}
               </div>
 
               {/* Unit filter */}
@@ -275,7 +300,7 @@ export default function TeacherDashboard() {
                   {[1, 2, 3, 4, 5, 6].map(u => {
                     const count = unitCounts[u];
                     const checked = selectedUnits.includes(u);
-                    const empty = selectedBank && count === 0;
+                    const empty = selectedBanks.length > 0 && count === 0;
                     return (
                       <label
                         key={u}
@@ -293,15 +318,15 @@ export default function TeacherDashboard() {
                           <span className="font-mono text-violet-300 text-sm">U{u}</span>
                           <span className="text-sm text-slate-200 truncate">{UNIT_LABELS[u]}</span>
                         </div>
-                        {selectedBank && (
+                        {selectedBanks.length > 0 && (
                           <span className="text-xs text-slate-400 font-mono flex-shrink-0">{count}</span>
                         )}
                       </label>
                     );
                   })}
-                  {selectedBank && unitCounts.untagged > 0 && (
+                  {selectedBanks.length > 0 && unitCounts.untagged > 0 && (
                     <div className="text-xs text-amber-300 italic pl-2 pt-1">
-                      ⚠ {unitCounts.untagged} concept{unitCounts.untagged === 1 ? '' : 's'} in this bank have no unit tag —
+                      ⚠ {unitCounts.untagged} concept{unitCounts.untagged === 1 ? '' : 's'} across selected banks have no unit tag —
                       they'll be excluded whenever any units are selected.
                     </div>
                   )}
@@ -332,36 +357,74 @@ export default function TeacherDashboard() {
 
         {/* QUESTION BANKS */}
         <div className="card-heist mb-6">
-          <h2 className="text-2xl text-heist-gold mb-4 flex items-center gap-2">
-            <FileText className="w-6 h-6" /> Question Banks ({questionBanks.length})
-          </h2>
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+            <h2 className="text-2xl text-heist-gold flex items-center gap-2">
+              <FileText className="w-6 h-6" /> Question Banks ({questionBanks.length})
+            </h2>
+            {questionBanks.length > 1 && (
+              <div className="flex gap-2 text-xs">
+                <button onClick={selectAllBanks} className="text-violet-300 hover:text-violet-100 underline">
+                  Select all
+                </button>
+                <button onClick={clearBanks} className="text-violet-300 hover:text-violet-100 underline">
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Tick one or more banks — the game will draw from every selected bank combined.
+          </p>
           {questionBanks.length === 0 ? (
             <p className="text-gray-500 italic">No banks yet. Upload a PDF above to create one.</p>
           ) : (
             <div className="space-y-2">
-              {questionBanks.map(bank => (
+              {questionBanks.map(bank => {
+                const isSelected = selectedBankIds.includes(bank.id);
+                return (
                 <div
                   key={bank.id}
                   className={`p-3 rounded-lg border-2 transition-all flex justify-between items-center ${
-                    selectedBank?.id === bank.id
+                    isSelected
                       ? 'border-heist-gold bg-heist-gold/10'
                       : 'border-gray-700 hover:border-heist-gold/50'
                   }`}
                 >
-                  <div className="cursor-pointer flex-1" onClick={() => setSelectedBank(bank)}>
-                    <div className="font-bold">{bank.name}</div>
-                    <div className="text-xs text-gray-400">
-                      {bank.questionCount} concepts • Created {bank.createdAt?.toDate?.()?.toLocaleDateString() || 'recently'}
+                  <label className="cursor-pointer flex-1 flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleBank(bank.id)}
+                      className="accent-heist-gold w-4 h-4 flex-shrink-0"
+                    />
+                    <div className="flex-1">
+                      <div className="font-bold flex items-center gap-2">
+                        {bank.name}
+                        {bank.builtIn && (
+                          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-200 border border-violet-400/30">
+                            built-in
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {bank.questionCount} concepts
+                        {bank.builtIn
+                          ? ' • Bundled with the game'
+                          : ` • Created ${bank.createdAt?.toDate?.()?.toLocaleDateString() || 'recently'}`}
+                      </div>
                     </div>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteBank(bank.id)}
-                    className="text-heist-red hover:bg-heist-red/10 p-2 rounded"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  </label>
+                  {!bank.builtIn && (
+                    <button
+                      onClick={() => handleDeleteBank(bank.id)}
+                      className="text-heist-red hover:bg-heist-red/10 p-2 rounded"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

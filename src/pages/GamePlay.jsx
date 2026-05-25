@@ -5,6 +5,7 @@ import { Volume2, VolumeX, Home, Flag } from 'lucide-react';
 import {
   getClass,
   getQuestionBank,
+  getMergedQuestionBank,
   updatePlayerScore,
   stealPoints,
   subscribeToLeaderboard,
@@ -45,7 +46,12 @@ export default function GamePlay() {
           return;
         }
 
-        const bank = await getQuestionBank(classData.questionBankId);
+        // Classes can target one bank (legacy: questionBankId) or several
+        // (questionBankIds). Merge them transparently.
+        const bankIds = classData.questionBankIds && classData.questionBankIds.length
+          ? classData.questionBankIds
+          : [classData.questionBankId];
+        const bank = await getMergedQuestionBank(bankIds);
         if (!bank || !bank.concepts || bank.concepts.length === 0) {
           alert('No questions found for this class. Ask your teacher.');
           navigate('/');
