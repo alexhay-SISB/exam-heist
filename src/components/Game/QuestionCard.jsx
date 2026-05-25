@@ -96,8 +96,13 @@ export default function QuestionCard({ question, questionNumber, totalQuestions,
         </div>
       </div>
 
-      {/* Business Context */}
-      {question.businessContext && question.requiresContext !== false && (
+      {/* Business Context — only for Outline & Explain.
+          Define / Identify / Justify questions are about the concept itself
+          (or a yes/no judgement), so the fictional-business stem just adds
+          noise without changing the answer the student needs to write. */}
+      {question.businessContext
+        && question.requiresContext !== false
+        && !['Define', 'Identify', 'Justify'].includes(question.commandWord) && (
         <div className="mb-4 p-4 rounded-xl bg-slate-950/40 border border-violet-400/20">
           <div className="text-xs uppercase tracking-wider text-violet-300 mb-1">Business Context</div>
           <p className="text-slate-300 text-sm leading-relaxed">{question.businessContext}</p>

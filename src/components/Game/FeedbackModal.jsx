@@ -26,13 +26,25 @@ export default function FeedbackModal({ result, question, onContinue }) {
             {isCorrect ? (
               <>
                 <CheckCircle className="w-20 h-20 mx-auto mb-2" />
-                <h2 className="text-4xl">CORRECT!</h2>
+                <h2 className="text-4xl">
+                  {result.marksAwarded === result.fullMarks ? 'FULL MARKS!' : 'PARTIAL CREDIT'}
+                </h2>
+                {typeof result.marksAwarded === 'number' && (
+                  <p className="text-lg mt-1 text-gray-300">
+                    {result.marksAwarded}/{result.fullMarks} marks earned
+                  </p>
+                )}
                 <p className="text-2xl mt-2">+{result.pointsAwarded} POINTS</p>
               </>
             ) : (
               <>
                 <XCircle className="w-20 h-20 mx-auto mb-2" />
                 <h2 className="text-4xl">NOT QUITE</h2>
+                {typeof result.marksAwarded === 'number' && (
+                  <p className="text-lg mt-1 text-gray-300">
+                    0/{result.fullMarks} marks
+                  </p>
+                )}
                 <p className="text-lg mt-2 text-gray-400">No points this round</p>
               </>
             )}
@@ -52,6 +64,21 @@ export default function FeedbackModal({ result, question, onContinue }) {
             </div>
             <p className="text-white">{result.feedback}</p>
           </div>
+
+          {/* Examiner notes — targeted improvement points */}
+          {result.examinerNotes && result.examinerNotes.length > 0 && (
+            <div className="bg-violet-500/10 border border-violet-400/30 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 mb-2 text-violet-300">
+                <Lightbulb className="w-5 h-5" />
+                <span className="uppercase text-sm tracking-wider">Examiner's Notes</span>
+              </div>
+              <ul className="text-gray-200 text-sm space-y-1 list-disc list-inside">
+                {result.examinerNotes.map((note, i) => (
+                  <li key={i}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Keywords hit */}
           {result.keywordsHit && result.keywordsHit.length > 0 && (

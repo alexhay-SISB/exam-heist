@@ -163,6 +163,59 @@ const TEMPLATE_CAT_COMPAT = {
 const wantsContext = (notes) =>
   /reference\s+the\s+business/i.test(notes || '');
 
+// PDF extraction often pulls in the printed instruction
+// "DO NOT WRITE IN THE/THIS MARGIN(S)" from the answer booklet. Strip it
+// wherever it appears in questions, answers, notes or topic. Also strip
+// orphaned "Question s" or "Marks Answer" table headers that sometimes
+// bleed through from the mark-scheme PDF.
+const cleanPdfArtifacts = (text) => {
+  if (!text) return text || '';
+  return text
+    .replace(/\bDO\s+NOT\s+WRITE\s+IN\s+(?:THE|THIS|ANY)?\s*MARGINS?\.?/gi, '')
+    .replace(/\bDO\s+NOT\s+WRITE\s+IN\s+MARGIN[S]?\.?/gi, '')
+    // Common mark-scheme header debris
+    .replace(/\bQuestion\s+s\b/g, '')
+    .replace(/\bMarks?\s+Answer\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+// A topic is "junk" if it's empty, punctuation-only, or just a question marker
+// like "1a" / "X" — these produce questions like `Define '.'` or
+// `Identify two examples of .` that confuse students.
+const isJunkTopic = (topic) => {
+  if (!topic) return true;
+  const t = topic.trim();
+  if (t.length < 2) return true;
+  if (/^[\s.,!?'"\-:;()]+$/.test(t)) return true;       // only punctuation
+  if (/^\d+[a-h]?$/i.test(t)) return true;              // e.g. "1a", "12"
+  if (/^[xy]$/i.test(t)) return true;                   // bare X / Y placeholders
+  return false;
+};
+
+// Derive a clean topic label from an example question. Mirrors the same
+// logic in csvParser.js so built-in JSON rows (which only have
+// example_question, no separate topic column) get a usable topic too.
+const deriveTopicFromQuestion = (q) => {
+  if (!q) return '';
+  // Define 'Term' or Define "Term"
+  let m = q.match(/^define\s+['"]([^'"]+)['"]/i);
+  if (m) return m[1].trim();
+  // Identify/State/List/Name [number] <topic>
+  m = q.match(/^(?:identify|state|list|name)\s+(?:two|one|four|three|several|the\s+\w+)?\s*(.+?)(?:\.|,|$)/i);
+  if (m) return m[1].trim();
+  // Outline [number] <topic>
+  m = q.match(/^outline\s+(?:two|one|four|three)?\s*(.+?)(?:\.|,|$)/i);
+  if (m) return m[1].trim();
+  // Explain [number] <topic>
+  m = q.match(/^explain\s+(?:(?:two|one|four|three)\s+)?(.+?)(?:\.|,|$)/i);
+  if (m) return m[1].trim();
+  // Do you think <topic> is/are …
+  m = q.match(/^do you think\s+(.+?)\s+(?:is|are|was|were)\b/i);
+  if (m) return m[1].trim();
+  return q.slice(0, 60).replace(/[.,?!]$/, '').trim();
+};
+
 /**
  * Build a question bank from parsed CSV rows.
  * - Auto-detects category from example_question (Define/Identify/…)
@@ -186,16 +239,30 @@ export const buildQuestionBankFromCSV = (csvRows) => {
       ? explicitCategory
       : detectCategory(row.example_question);
 
+    // Strip PDF artifacts (e.g. "DO NOT WRITE IN THE MARGIN") BEFORE
+    // detecting business codes, so we don't accidentally anonymise text
+    // inside the artifact and end up with "DO NOT TKD IN TKD MARGIN".
+    const cleanQ     = cleanPdfArtifacts(row.example_question);
+    const cleanA     = cleanPdfArtifacts(row.model_answer);
+    // Bundled JSON rows from past-paper / generated CSVs only have an
+    // example_question — derive the topic from it. Uploaded CSVs that
+    // include an explicit `topic` column keep theirs.
+    const rawTopic   = row.topic && row.topic.trim()
+      ? row.topic
+      : deriveTopicFromQuestion(cleanQ);
+    const cleanTopic = cleanPdfArtifacts(rawTopic);
+    const cleanNotes = cleanPdfArtifacts(row.notes);
+
     // Anonymise any business code that appears in the question. We look in
     // the question text (most reliable signal) and apply the same swap to
     // the answer, notes, and topic so they all stay consistent.
-    const codes = detectBusinessCodes(row.example_question);
-    const needsContext = wantsContext(row.notes) || codes.length > 0;
+    const codes = detectBusinessCodes(cleanQ);
+    const needsContext = wantsContext(cleanNotes) || codes.length > 0;
 
-    const exampleQuestion = anonymiseCodes(row.example_question, codes);
-    const modelAnswer    = anonymiseCodes(row.model_answer, codes);
-    const topic          = anonymiseCodes(row.topic, codes);
-    const notes          = anonymiseCodes(row.notes, codes);
+    const exampleQuestion = anonymiseCodes(cleanQ, codes);
+    const modelAnswer     = anonymiseCodes(cleanA, codes);
+    const topic           = anonymiseCodes(cleanTopic, codes);
+    const notes           = anonymiseCodes(cleanNotes, codes);
 
     return {
       id: `concept_${Date.now()}_${idx}`,
@@ -212,6 +279,17 @@ export const buildQuestionBankFromCSV = (csvRows) => {
       anonymisedCodes: codes,
       keywords: buildKeywords(`${modelAnswer} ${topic}`)
     };
+  }).filter(c => {
+    // Drop concepts that can't produce a usable question.
+    // 1) Junk topic → would render as `Define '.'` / `Identify two examples of .`
+    if (isJunkTopic(c.topic)) return false;
+    // 2) Definition / list concepts NEED a model answer — that IS the answer
+    //    shown when a student gets it wrong. Without it the feedback panel
+    //    is useless. Outline/Explain/Justify can survive a weak model answer
+    //    because the question itself carries most of the learning.
+    if ((c.category === 'definition' || c.category === 'list')
+        && (!c.modelAnswer || c.modelAnswer.trim().length < 5)) return false;
+    return true;
   });
 };
 
@@ -419,107 +497,211 @@ const topicTouched = (answer, topic) => {
 };
 
 /**
- * Score the student's answer using the model answer and notes.
- * - Compares keyword coverage against the model answer
- * - For "two things" questions, splits the student's answer on . / or newline
- *   and credits per-segment
- * - For Define questions, also credits an illustrative example that
- *   demonstrates the concept (per Cambridge mark scheme practice)
- * - If the question requires context (marks>=4), bonus credit for using the
- *   business name / context details (driven by the teacher's notes column).
+ * Score the student's answer using semantic concept matching.
+ *
+ * Uses ../utils/semanticMarker.js to:
+ *   • Stem every word (fires/fired/firing → fire)
+ *   • Map synonyms to a canonical token (sack/dismiss/terminate → fire)
+ *   • Preserve multi-word business terms ("limited liability") as one concept
+ *   • Strip concept tokens that appear after a negation word
+ *
+ * Per question type:
+ *   • Define   — paraphrase OR concrete example, must touch the topic
+ *   • Identify — split model into list items, match each student segment
+ *                against ANY model item by canonical-token overlap
+ *   • Outline  — multi-item identify-style, plus development bonus
+ *   • Explain  — overall concept coverage with multi-segment bonus
+ *   • Justify  — overall concept coverage; both sides earn marks
+ *
+ * Returns the same shape FeedbackModal already consumes, with extra
+ * `keywordsHit` / `keywordsMissed` arrays built from the matched
+ * canonical concepts (more useful than the old keyword list).
+ */
+import {
+  markAnswer as semanticMark,
+  countAnalysisLinks,
+  countContrastMarkers,
+  hasJudgement,
+  specificityScore,
+  lengthAdequacy,
+  isCircularDefinition
+} from './semanticMarker';
+
+/**
+ * Score a student answer in the style of a Cambridge IGCSE examiner.
+ *
+ * Independent AO-style signals → targeted feedback.
+ *   AO1 Knowledge   ← semantic concept overlap
+ *   AO2 Application ← business name/type references
+ *   AO3 Analysis    ← cause-and-effect connectors (Explain/Justify)
+ *   AO4 Evaluation  ← contrast markers + judgement (Justify)
+ *
+ *  + Length adequacy caps final mark for short answers
+ *  + Specificity bonus for numbers, real firms, examples
+ *  + Circular-definition penalty for tautologies
  */
 export const scoreAnswer = (studentAnswer, question) => {
-  const raw = studentAnswer || '';
-  const answer = raw.toLowerCase().trim();
+  const raw = (studentAnswer || '').trim();
+  const fullMarks = question.marks && question.marks > 0 ? question.marks : 4;
 
-  if (answer.length < 5) {
-    return {
-      correct: false,
-      pointsAwarded: 0,
-      feedback: 'No answer provided. Try writing at least a sentence!',
-      keywordsHit: [],
-      keywordsMissed: question.expectedKeywords || [],
-      suggestedAnswer: question.modelAnswer || ''
-    };
+  if (raw.length < 5) {
+    return zeroMarkResult(question, 'No answer provided. Try writing at least a sentence!');
   }
 
-  const keywords = question.expectedKeywords || [];
-  const keywordsHit = keywords.filter(kw => answer.includes(kw.toLowerCase()));
-  const keywordsMissed = keywords.filter(kw => !keywordsHit.includes(kw));
+  const cmd = question.commandWord || '';
+  const sem = semanticMark(raw, question);
+  let coverage = sem.coverage || 0;
+  const issues = [];
 
-  const totalKeywords = Math.max(keywords.length, 1);
-  let coverage = keywordsHit.length / totalKeywords;
-
-  // ── Multi-item question: "Identify two…", "Outline two…", "Explain two…" ──
-  // Split the answer on the separators the user specified (. / newline) plus
-  // graceful handling of semicolons and list prefixes. Each segment is checked
-  // for at least one expected keyword; coverage is segments-hit / required.
-  const requiredCount = detectRequiredCount(question.questionText);
-  let itemsCoverage = null;
-  if (requiredCount >= 2) {
-    const segments = splitIntoSegments(raw);
-    if (segments.length > 0) {
-      const segmentsWithKeyword = segments.filter(seg => {
-        const sl = seg.toLowerCase();
-        return keywords.some(kw => sl.includes(kw.toLowerCase()));
-      }).length;
-      itemsCoverage = Math.min(1, segmentsWithKeyword / requiredCount);
-      // Use whichever scoring is more generous — overall coverage or per-item.
-      coverage = Math.max(coverage, itemsCoverage);
-    }
-  }
-
-  // ── Define question: an illustrative example counts ──
-  // Cambridge allows a definition to be evidenced by an example demonstrating
-  // the concept. If the student's answer contains an example marker AND
-  // touches the topic, credit them even when textbook keywords are missing.
-  if (isDefineQuestion(question) && hasExampleMarkers(answer) && topicTouched(answer, question.topic)) {
-    const boosted = keywordsHit.length > 0 ? 0.7 : 0.5;
-    coverage = Math.max(coverage, boosted);
-  }
-
-  // Context bonus: if the question requires context and the student references the business
+  // ── AO2 Application — referenced the business? ──
   let usedContext = false;
-  if (question.requiresContext && question.business) {
-    const bizName = question.business.name.toLowerCase();
-    const bizType = question.business.type.toLowerCase();
-    if (answer.includes(bizName) || answer.includes(bizType)) {
+  if (question.business) {
+    const lower = raw.toLowerCase();
+    const bizName = (question.business.name || '').toLowerCase();
+    const bizType = (question.business.type || '').toLowerCase();
+    if ((bizName && lower.includes(bizName)) || (bizType && lower.includes(bizType))) {
       usedContext = true;
-      coverage = Math.min(1, coverage + 0.15);
+      if (['Outline', 'Explain', 'Justify'].includes(cmd)) {
+        coverage = Math.min(1, coverage + 0.12);
+      }
     }
   }
+  if (question.requiresContext && !usedContext && ['Outline', 'Explain', 'Justify'].includes(cmd)) {
+    issues.push('No business context — reference the business by name for application marks.');
+  }
+
+  // ── AO3 Analysis — cause-and-effect for Explain/Justify ──
+  const analysisLinks = countAnalysisLinks(raw);
+  if (cmd === 'Explain' || cmd === 'Justify') {
+    if (analysisLinks >= 2) coverage = Math.min(1, coverage + 0.12);
+    else if (analysisLinks === 1) coverage = Math.min(1, coverage + 0.05);
+    else if (coverage >= 0.3) {
+      issues.push('You identified the point but didn\'t develop it. Use "because", "so" or "which means" to link cause to effect.');
+      coverage = Math.min(coverage, 0.55);
+    }
+  }
+
+  // ── AO4 Evaluation — Justify needs contrast + judgement ──
+  if (cmd === 'Justify') {
+    const contrasts = countContrastMarkers(raw);
+    const judged = hasJudgement(raw);
+    if (contrasts >= 1 && judged) coverage = Math.min(1, coverage + 0.15);
+    else {
+      if (contrasts === 0 && coverage >= 0.3) {
+        issues.push('Add a counter-argument ("However…") for evaluation marks.');
+        coverage = Math.min(coverage, 0.6);
+      }
+      if (!judged && coverage >= 0.3) {
+        issues.push('End with a clear judgement — "Overall I think… because…".');
+        coverage = Math.min(coverage, 0.65);
+      }
+    }
+  }
+
+  // ── Specificity bonus ──
+  const spec = specificityScore(raw);
+  if (spec >= 2) coverage = Math.min(1, coverage + 0.06);
+  else if (spec >= 1) coverage = Math.min(1, coverage + 0.03);
+
+  // ── Circular definition penalty ──
+  if (cmd === 'Define' && isCircularDefinition(raw, question.topic)) {
+    coverage = 0;
+    issues.unshift('You restated the term instead of defining it. Explain in your own words or give an example.');
+  }
+
+  // ── Length cap for high-mark questions ──
+  const lenAd = lengthAdequacy(raw, fullMarks);
+  if (lenAd < 0.5 && fullMarks >= 4) {
+    coverage = Math.min(coverage, lenAd + 0.4);
+    if (cmd !== 'Define' && cmd !== 'Identify') {
+      issues.push(`Your answer is too short for a ${fullMarks}-mark question. Develop each point with more detail.`);
+    }
+  }
+
+  // ── Identify item-count feedback ──
+  if (sem.mode === 'identify' && sem.matchedItems) {
+    const matched = sem.matchedItems.length;
+    const need = sem.requiredCount || 1;
+    if (matched < need) {
+      issues.push(`You gave ${matched} of ${need} required items. Add ${need - matched} more.`);
+    }
+  }
+
+  // ── Coverage → marks (out of question's mark scheme) ──
+  let marksAwarded = Math.round(coverage * fullMarks);
+  if (coverage < 0.15) marksAwarded = 0;
 
   const gamePointsMax = getGamePoints(question.difficulty);
-  let pointsAwarded = 0;
-  let correct = false;
-  let feedback = '';
+  const pointsAwarded = Math.round(gamePointsMax * (marksAwarded / fullMarks));
+  const correct = marksAwarded > 0;
 
-  if (coverage >= 0.6) {
-    pointsAwarded = gamePointsMax;
-    correct = true;
-    feedback = `Excellent answer on ${question.topic}.${usedContext ? ' Good use of the business context!' : ''}`;
-  } else if (coverage >= 0.3) {
-    pointsAwarded = Math.floor(gamePointsMax * 0.5);
-    correct = true;
-    feedback = `Partial credit. You touched on ${question.topic} but could develop your answer further.`;
-    if (question.requiresContext && !usedContext) {
-      feedback += ' Tip: reference the business by name to earn context marks.';
-    }
+  let feedback;
+  if (marksAwarded === fullMarks) {
+    feedback = `Full marks — ${marksAwarded}/${fullMarks}. ${usedContext ? 'Strong use of business context.' : 'Sharp, focused answer.'}`;
+  } else if (marksAwarded >= Math.ceil(fullMarks / 2)) {
+    feedback = `${marksAwarded}/${fullMarks} marks. ${issues[0] || 'Good ideas — develop them further next time.'}`;
+  } else if (marksAwarded > 0) {
+    feedback = `${marksAwarded}/${fullMarks} marks. ${issues[0] || 'On the right track but missing key elements.'}`;
   } else {
-    pointsAwarded = 0;
-    correct = false;
-    feedback = generateLearningFeedback(question);
+    feedback = `0/${fullMarks} marks. ${issues[0] || generateLearningFeedback(question)}`;
   }
+
+  const hitList = (sem.hits || []).slice(0, 6);
+  const missingList = (sem.missing || []).slice(0, 6);
+  const surfacedAnswer = question.modelAnswer && question.modelAnswer.trim().length > 5
+    ? question.modelAnswer
+    : (!correct ? buildFallbackAnswer(question) : '');
 
   return {
     correct,
     pointsAwarded,
+    marksAwarded,
+    fullMarks,
+    coverage,
+    mode: sem.mode,
     feedback,
-    keywordsHit,
-    keywordsMissed: keywordsMissed.slice(0, 4),
-    suggestedAnswer: question.modelAnswer || '',
+    examinerNotes: issues.slice(0, 3),
+    analysisLinks,
+    usedContext,
+    keywordsHit: hitList,
+    keywordsMissed: missingList,
+    matchedItems: sem.matchedItems || null,
+    suggestedAnswer: surfacedAnswer,
     markingNotes: question.notes || ''
   };
+};
+
+const zeroMarkResult = (question, msg) => ({
+  correct: false,
+  pointsAwarded: 0,
+  marksAwarded: 0,
+  fullMarks: question.marks || 4,
+  coverage: 0,
+  feedback: msg,
+  examinerNotes: [],
+  keywordsHit: [],
+  keywordsMissed: [],
+  suggestedAnswer: question.modelAnswer && question.modelAnswer.trim().length > 5
+    ? question.modelAnswer
+    : buildFallbackAnswer(question)
+});
+
+const buildFallbackAnswer = (question) => {
+  const topic = question.topic || 'the concept';
+  switch (question.commandWord) {
+    case 'Define':
+      return `A precise definition of "${topic}" — explain in your own words what it means, and where helpful give a short example (e.g. with numbers or a real situation).`;
+    case 'Identify':
+      return `List clear, distinct examples of ${topic}. The mark scheme wants short, specific items (no full sentences).`;
+    case 'Outline':
+      return `Two short reasons or examples of ${topic}, each with one developed point (cause → effect) referencing the business.`;
+    case 'Explain':
+      return `Two reasons relating to ${topic}, each developed with a cause-and-effect chain that links the point to the business context (use the business name).`;
+    case 'Justify':
+      return `Argue for or against ${topic}: give 2 points on each side, then a final judgement that says which is stronger and why for this business.`;
+    default:
+      return `Develop an answer focused on ${topic} — give clear points and link each to the business.`;
+  }
 };
 
 const getGamePoints = (difficulty) => ({
