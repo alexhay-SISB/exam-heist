@@ -29,27 +29,34 @@ const BUSINESS_TEMPLATES = [
 
 // Only the 5 command words actually used in the IGCSE Business paper:
 // Define · Identify · Outline · Explain · Justify
+//
+// Templates are now a FALLBACK only — when a concept has no example_question.
+// All templates here are written to be grammatical for any kind of topic
+// (whether singular like "penetration pricing" or plural like "pricing
+// methods"), so we don't get nonsense like "Identify two penetration
+// pricing." Bare `Identify two ${t}` / `Outline two types of ${t}` /
+// `Explain two ${t} that...` were removed for this reason.
 const TEMPLATES_BY_DIFFICULTY = {
   EASY: [
     { command: 'Define',   marks: 2, build: (t) => `Define '${t}'.` },
-    { command: 'Identify', marks: 2, build: (t) => `Identify two ${t}.` },
-    { command: 'Identify', marks: 2, build: (t) => `Identify two examples of ${t}.` }
+    { command: 'Identify', marks: 2, build: (t) => `Identify two examples of ${t}.` },
+    { command: 'Identify', marks: 2, build: (t) => `Identify two features of ${t}.` }
   ],
   MEDIUM: [
-    { command: 'Outline', marks: 3, build: (t, b) => `Outline one example of ${t} for ${b.name}.` },
-    { command: 'Outline', marks: 4, build: (t) => `Outline two types of ${t}.` },
-    { command: 'Outline', marks: 4, build: (t, b) => `Outline how ${t} could be used by ${b.name}.` }
+    { command: 'Outline', marks: 4, build: (t, b) => `Outline two examples of ${t} for ${b.name}.` },
+    { command: 'Outline', marks: 4, build: (t, b) => `Outline how ${t} could be used by ${b.name}.` },
+    { command: 'Outline', marks: 4, build: (t, b) => `Outline two ways ${t} could affect ${b.name}.` }
   ],
   HARD: [
-    { command: 'Explain', marks: 6, build: (t, b) => `Explain two ${t} that ${b.name} could use.` },
     { command: 'Explain', marks: 6, build: (t, b) => `Explain two advantages of ${t} for ${b.name}.` },
     { command: 'Explain', marks: 6, build: (t, b) => `Explain two disadvantages of ${t} for ${b.name}.` },
-    { command: 'Explain', marks: 6, build: (t, b) => `Explain how ${t} might affect ${b.name}.` }
+    { command: 'Explain', marks: 6, build: (t, b) => `Explain how ${t} might affect ${b.name}.` },
+    { command: 'Explain', marks: 6, build: (t, b) => `Explain two ways ${t} could benefit ${b.name}.` }
   ],
   EXPERT: [
     { command: 'Justify', marks: 6, build: (t, b) => `Do you think ${t} is the best approach for ${b.name}? Justify your answer.` },
     { command: 'Justify', marks: 6, build: (t, b) => `Do you think ${b.name} should focus on ${t}? Justify your answer.` },
-    { command: 'Justify', marks: 8, build: (t, b) => `Do you think ${b.name} should rely on ${t}? Justify your answer.` }
+    { command: 'Justify', marks: 6, build: (t, b) => `Do you think ${b.name} should rely on ${t}? Justify your answer.` }
   ]
 };
 
@@ -405,9 +412,13 @@ const commandFromText = (text, fallbackMarks) => {
 export const generateQuestion = (concept, forcedDifficulty = null, forcedTemplate = null) => {
   const business = pickRandom(BUSINESS_TEMPLATES);
 
-  // Anonymised concepts MUST keep their original phrasing because the answer
-  // was written for that specific question. Pristine concepts use templates.
-  const useOriginalQ = concept.anonymised && concept.exampleQuestion;
+  // ALWAYS prefer the concept's own hand-written question when one exists.
+  // The built-in banks (730 past-paper, 300 + 755 practice, 311 vocab) all
+  // ship with a grammatically-correct example_question per concept. The
+  // template system below produces broken sentences for singular-noun
+  // topics — e.g. "Identify two penetration pricing." — so it's only safe
+  // as a fallback for the rare CSV upload that has topic but no question.
+  const useOriginalQ = concept.exampleQuestion && concept.exampleQuestion.trim().length > 0;
 
   let questionText, commandWord, marks, difficulty;
 
@@ -416,14 +427,7 @@ export const generateQuestion = (concept, forcedDifficulty = null, forcedTemplat
     const cmd = commandFromText(questionText, concept.preferredMarks);
     commandWord = cmd.commandWord;
     marks       = cmd.marks;
-    difficulty  = forcedDifficulty || concept.preferredDifficulty || 'HARD';
-  } else if (concept.exampleQuestion && Math.random() < 0.30 && !forcedTemplate) {
-    // Occasionally use the teacher's original wording for variety
-    questionText = concept.exampleQuestion;
-    const cmd = commandFromText(questionText, concept.preferredMarks);
-    commandWord = cmd.commandWord;
-    marks       = cmd.marks;
-    difficulty  = forcedDifficulty || concept.preferredDifficulty || 'MEDIUM';
+    difficulty  = concept.preferredDifficulty || forcedDifficulty || 'MEDIUM';
   } else {
     difficulty = forcedDifficulty || concept.preferredDifficulty || pickRandom(['EASY','MEDIUM','HARD','EXPERT']);
     const template = forcedTemplate || pickRandom(TEMPLATES_BY_DIFFICULTY[difficulty]);
@@ -477,9 +481,17 @@ export const generateCampaign = (concepts, options = {}) => {
     if (pool.length === 0) return []; // unit selection has no content
   }
 
-  // Group concepts by category for fast lookup
-  const byCategory = { definition: [], list: [], explanation: [], evaluation: [] };
+  // Group concepts by their preferred difficulty AND by category. The
+  // built-in banks have hand-written questions tagged with the right
+  // difficulty already, so picking by difficulty produces the most
+  // natural campaign mix. byCategory is kept as a fallback when a tier
+  // has no concept at its preferred difficulty.
+  const byDifficulty = { EASY: [], MEDIUM: [], HARD: [], EXPERT: [] };
+  const byCategory   = { definition: [], list: [], explanation: [], evaluation: [] };
   for (const c of pool) {
+    if (c.preferredDifficulty && byDifficulty[c.preferredDifficulty]) {
+      byDifficulty[c.preferredDifficulty].push(c);
+    }
     const cat = byCategory[c.category] ? c.category : 'explanation';
     byCategory[cat].push(c);
   }
@@ -492,28 +504,38 @@ export const generateCampaign = (concepts, options = {}) => {
     { difficulty: 'EXPERT', count: 8 }
   ];
 
+  // Track recently-used concepts so the campaign doesn't repeat the same
+  // concept multiple times across its 47 questions.
+  const usedConceptIds = new Set();
+  const pickFresh = (arr) => {
+    if (!arr || arr.length === 0) return null;
+    const fresh = arr.filter(c => !usedConceptIds.has(c.id));
+    return pickRandom(fresh.length > 0 ? fresh : arr);
+  };
+
   for (const tier of tiers) {
     for (let i = 0; i < tier.count; i++) {
-      // Try templates in shuffled order, pick the first one with concepts.
-      const templates = [...TEMPLATES_BY_DIFFICULTY[tier.difficulty]];
-      templates.sort(() => Math.random() - 0.5);
+      // Strategy: prefer a concept whose own preferred difficulty matches
+      // the tier — that way the hand-written question fits naturally.
+      let chosenConcept = pickFresh(byDifficulty[tier.difficulty]);
 
-      let chosenTemplate = null, chosenConcept = null;
-      for (const t of templates) {
-        const compat = TEMPLATE_CAT_COMPAT[t.command] || ['explanation'];
-        const matched = compat.flatMap(cat => byCategory[cat] || []);
-        if (matched.length === 0) continue;
-        chosenTemplate = t;
-        chosenConcept  = pickRandom(matched);
-        break;
-      }
-
-      // Fallback: no compatible concept for any template in this tier —
-      // pick any concept from the (already unit-filtered) pool.
+      // Fallback 1: a template-compatible concept (legacy logic).
+      let chosenTemplate = null;
       if (!chosenConcept) {
-        chosenConcept = pickRandom(pool);
-        chosenTemplate = null;
+        const templates = [...TEMPLATES_BY_DIFFICULTY[tier.difficulty]];
+        templates.sort(() => Math.random() - 0.5);
+        for (const t of templates) {
+          const compat = TEMPLATE_CAT_COMPAT[t.command] || ['explanation'];
+          const matched = compat.flatMap(cat => byCategory[cat] || []);
+          chosenConcept = pickFresh(matched);
+          if (chosenConcept) { chosenTemplate = t; break; }
+        }
       }
+
+      // Fallback 2: anything from the pool.
+      if (!chosenConcept) chosenConcept = pickFresh(pool);
+      if (!chosenConcept) continue;
+      usedConceptIds.add(chosenConcept.id);
 
       campaign.push(generateQuestion(chosenConcept, tier.difficulty, chosenTemplate));
     }
