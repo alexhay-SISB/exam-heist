@@ -96,13 +96,22 @@ export default function QuestionCard({ question, questionNumber, totalQuestions,
         </div>
       </div>
 
-      {/* Business Context — only for Outline & Explain.
-          Define / Identify / Justify questions are about the concept itself
-          (or a yes/no judgement), so the fictional-business stem just adds
-          noise without changing the answer the student needs to write. */}
+      {/* Business Context — shown when the question actually needs it:
+            • Always for Outline and Explain (they require business context)
+            • For Define / Identify / Justify, only when the question text
+              itself mentions the business name (e.g. "Identify two risks
+              of using price skimming for SLN" — the student has to know
+              what SLN is to answer).
+          A plain "Define 'specialisation'" gets no panel; a question that
+          names the business gets the panel. */}
       {question.businessContext
         && question.requiresContext !== false
-        && !['Define', 'Identify', 'Justify'].includes(question.commandWord) && (
+        && (
+          ['Outline', 'Explain'].includes(question.commandWord)
+          || (question.business
+              && question.questionText
+              && question.questionText.includes(question.business.name))
+        ) && (
         <div className="mb-4 p-4 rounded-xl bg-slate-950/40 border border-violet-400/20">
           <div className="text-xs uppercase tracking-wider text-violet-300 mb-1">Business Context</div>
           <p className="text-slate-300 text-sm leading-relaxed">{question.businessContext}</p>
