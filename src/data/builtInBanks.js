@@ -16,6 +16,7 @@ import { buildQuestionBankFromCSV } from '../utils/questionGenerator';
 import questionRows    from './builtInQuestions.json';
 import definitionRows  from './builtInDefinitions.json';
 import practice300Rows from './builtInPractice300.json';
+import practice750Rows from './builtInPractice750.json';
 
 // Normalise the definitions CSV's `key term`/`definition` shape into the
 // row schema the question-generator expects (mirrors the live CSV parser).
@@ -32,9 +33,10 @@ const defsAsRows = definitionRows
     category:         'definition'
   }));
 
-const pastPaperConcepts  = buildQuestionBankFromCSV(questionRows);
-const definitionConcepts = buildQuestionBankFromCSV(defsAsRows);
+const pastPaperConcepts   = buildQuestionBankFromCSV(questionRows);
+const definitionConcepts  = buildQuestionBankFromCSV(defsAsRows);
 const practice300Concepts = buildQuestionBankFromCSV(practice300Rows);
+const practice750Concepts = buildQuestionBankFromCSV(practice750Rows);
 
 export const BUILT_IN_BANKS = [
   {
@@ -50,6 +52,14 @@ export const BUILT_IN_BANKS = [
     name: '📝 IGCSE Business — 300 Practice 6-Mark Questions',
     questionCount: practice300Concepts.length,
     concepts: practice300Concepts,
+    builtIn: true,
+    createdAt: null
+  },
+  {
+    id: 'builtin-igcse-practice-750',
+    name: '✏️ IGCSE Business — 750 Practice Questions (all command words)',
+    questionCount: practice750Concepts.length,
+    concepts: practice750Concepts,
     builtIn: true,
     createdAt: null
   },
