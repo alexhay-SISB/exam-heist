@@ -461,19 +461,31 @@ const studentItems = (studentText) => {
     .filter(s => s.length >= 2);
 };
 
+// Candidate items that are obviously mark-scheme boilerplate rather than
+// real answer items. If most candidates match these, the model answer
+// was unparseable and we should fall back to overall semantic coverage.
+const JUNK_CANDIDATE_RE = /^(?:to\s+use|the\s+(?:reference|following)|make\s+sense|do\s+not\s+accept|allow\s+only|application|indicative|award|possible|justification|other\s+appropriate|candidates?)\b/i;
+
 export const markIdentifyAnswer = (studentText, modelText, requiredCount) => {
   const candidates = extractCandidateItems(modelText);
-  if (candidates.length === 0) {
-    // Fall back to overall semantic overlap if we can't parse a list
+  // If we couldn't parse any items, or the items are all boilerplate,
+  // fall back to overall semantic overlap. This protects students whose
+  // past-paper question has a garbled model_answer.
+  const junkCount = candidates.filter(c => JUNK_CANDIDATE_RE.test(c)).length;
+  const allJunk   = candidates.length > 0 && junkCount / candidates.length >= 0.6;
+  if (candidates.length === 0 || allJunk) {
     const c = semanticCoverage(studentText, modelText);
-    return { ...c, matchedItems: [], candidateItems: [] };
+    return { ...c, matchedItems: [], candidateItems: [], fellBack: true };
   }
+  // Strip junk candidates from the working list so they don't pollute matching
+  const cleanCandidates = candidates.filter(c => !JUNK_CANDIDATE_RE.test(c));
+  const workingCandidates = cleanCandidates.length > 0 ? cleanCandidates : candidates;
   // Build per-candidate token sets, then identify "common" tokens that appear
   // in 50%+ of candidates — these are the category word ("pricing", "method")
   // rather than discriminating words. Exclude them from match comparison
   // so "Cost-plus pricing" only matches "Cost-plus pricing", not every other
   // pricing entry that shares "pricing".
-  const candidateTokens = candidates.map(c => ({ text: c, tokens: conceptTokens(c) }));
+  const candidateTokens = workingCandidates.map(c => ({ text: c, tokens: conceptTokens(c) }));
   const tokenFreq = new Map();
   for (const c of candidateTokens) {
     for (const t of c.tokens) tokenFreq.set(t, (tokenFreq.get(t) || 0) + 1);
@@ -513,7 +525,7 @@ export const markIdentifyAnswer = (studentText, modelText, requiredCount) => {
   }
   const required = Math.max(1, requiredCount || 1);
   const coverage = Math.min(1, matchedItems.length / required);
-  const missing = candidates.filter(c => !matchedSet.has(c));
+  const missing = workingCandidates.filter(c => !matchedSet.has(c));
   return {
     coverage,
     matchedItems,
@@ -713,11 +725,23 @@ export const markAnswer = (studentText, question) => {
   const cmd = question.commandWord || '';
   const model = question.modelAnswer || '';
 
-  // Identify / Outline — list-style answers benefit from per-item matching.
-  // Outline also needs development but we're lenient here.
-  if (cmd === 'Identify' || (cmd === 'Outline' && required >= 2)) {
+  // Identify — strict per-item matching, no fallback (a 2-item list answer
+  // must actually contain 2 items).
+  if (cmd === 'Identify') {
     const r = markIdentifyAnswer(studentText, model, required);
     return { ...r, mode: 'identify', requiredCount: required };
+  }
+  // Outline — try per-item matching first, but if the model-answer is
+  // garbled and yields a poor candidate list, fall back to overall
+  // semantic coverage. This protects students who wrote a great paragraph
+  // when the past-paper mark-scheme PDF was unparseable.
+  if (cmd === 'Outline' && required >= 2) {
+    const itemR = markIdentifyAnswer(studentText, model, required);
+    const semR  = semanticCoverage(studentText, model);
+    if (semR.coverage > itemR.coverage) {
+      return { ...semR, mode: 'explain', requiredCount: required };
+    }
+    return { ...itemR, mode: 'identify', requiredCount: required };
   }
 
   // Define — paraphrase / example detection.

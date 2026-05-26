@@ -163,21 +163,80 @@ const TEMPLATE_CAT_COMPAT = {
 const wantsContext = (notes) =>
   /reference\s+the\s+business/i.test(notes || '');
 
-// PDF extraction often pulls in the printed instruction
-// "DO NOT WRITE IN THE/THIS MARGIN(S)" from the answer booklet. Strip it
-// wherever it appears in questions, answers, notes or topic. Also strip
-// orphaned "Question s" or "Marks Answer" table headers that sometimes
-// bleed through from the mark-scheme PDF.
+// Normalise curly/smart quotes to straight ones — Cambridge CSV exports
+// use them and our topic-extraction regexes only match straight quotes.
+const normaliseQuotes = (text) => (text || '')
+  .replace(/[‘’‚‛′]/g, "'")
+  .replace(/[“”„‟″]/g, '"');
+
+// PDF extraction often pulls in:
+//   • "DO NOT WRITE IN THE MARGIN" booklet boilerplate
+//   • Orphaned "Question s" / "Marks Answer" table headers
+//   • Mark-scheme directives ("Award one mark per…", "Application marks
+//     may be awarded for…", "the reference must be appropriate…")
+//   • Standalone bullet runs that lost their item text
+//   • Annotation tags like [tv] (trivial), [eval], [an]
+//   • Content from the NEXT question that bled into this row's cell
+// Strip them so the cleaned text is just the actual model answer.
+const MARK_SCHEME_PATTERNS = [
+  // Booklet text
+  /\bDO\s+NOT\s+WRITE\s+IN\s+(?:THE|THIS|ANY)?\s*MARGINS?\.?/gi,
+  /\bDO\s+NOT\s+WRITE\s+IN\s+MARGIN[S]?\.?/gi,
+  // Mark-scheme directives — strip the entire sentence
+  /\b(?:Award|Allow)\s+(?:one|two|three|four|\d+)\s+marks?\b[^.]*\.?/gi,
+  /\bApplication\s+marks?\s+may\s+be\s+awarded[^.]*\.?/gi,
+  /\bTo\s+use\s+words\s+from\s+the\s+stem\s+as\s+application[^.]*\.?/gi,
+  /\b(?:the\s+)?reference\s+must\s+be\s+appropriate[^.]*\.?/gi,
+  /\bMake\s+sense\s+in\s+relation\s+to\s+the\s+point\s+being\s+made[^.]*\.?/gi,
+  /\bThe\s+following\s+words\s+are\s+likely\s+to\s+be\s+appropriate[^.]*\.?/gi,
+  /\bDo\s+not\s+accept[^.]*\.?/gi,
+  /\bAllow\s+only\s+once\b\.?/gi,
+  /\bOther\s+appropriate\s+responses\s+should\s+also\s+be\s+credited\.?/gi,
+  /\bIndicative\s+content\s*:?/gi,
+  /\bPossible\s+answers?\s+might\s+include\s*:?/gi,
+  /\bAnswers?\s+might\s+include\s*:?/gi,
+  /\bJustification\s+might\s+include\s*:?/gi,
+  /\(max\s+\d+\)/gi,
+  /\b(?:in\s+)?relation\s+to\s+this\s+business\b[^.]*\.?/gi,
+  /\bCandidates?\s+(?:can|should|may|must)\s+\w+[^.]*\.?/gi,
+  // Annotation markers
+  /\[\s*tv\s*\]/gi, /\[\s*eval\s*\]/gi, /\[\s*an\s*\]/gi, /\[\s*app\s*\]/gi,
+  /\(\s*an\s*\)/gi, /\(\s*eval\s*\)/gi, /\(\s*app\s*\)/gi,
+  // Orphaned table headers / column markers
+  /\bQuestion\s+s\b/g,
+  /\bMarks?\s+Answer\b/gi,
+  /\bs\s+Marks?\s+Answer\b/gi,
+];
+
 const cleanPdfArtifacts = (text) => {
   if (!text) return text || '';
-  return text
-    .replace(/\bDO\s+NOT\s+WRITE\s+IN\s+(?:THE|THIS|ANY)?\s*MARGINS?\.?/gi, '')
-    .replace(/\bDO\s+NOT\s+WRITE\s+IN\s+MARGIN[S]?\.?/gi, '')
-    // Common mark-scheme header debris
-    .replace(/\bQuestion\s+s\b/g, '')
-    .replace(/\bMarks?\s+Answer\b/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  let out = normaliseQuotes(text);
+  for (const re of MARK_SCHEME_PATTERNS) out = out.replace(re, '');
+  // Collapse runs of bullet markers: "• • • • •" → " "
+  out = out.replace(/(?:[•·*]\s*){2,}/g, ' ');
+  // Strip lone bullets between words
+  out = out.replace(/\s+[•·]\s+/g, ' ');
+  // Collapse whitespace
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  return out;
+};
+
+// Stronger pass for the model_answer field — same boilerplate strip plus
+// detection of whether what remains looks like a genuine answer or just
+// fragments / cross-contaminated noise. We don't use a hard length floor
+// here because valid definitions can be short ("A limit on imports"); the
+// reliable signal is jargon density.
+const isJunkAnswer = (cleaned) => {
+  if (!cleaned) return true;
+  const text = cleaned.trim();
+  if (text.length < 8) return true;            // truly tiny / empty
+  const wordCount = text.split(/\s+/).length;
+  if (wordCount < 2) return true;              // single-word leftovers
+  // Density of mark-scheme jargon → high = junk extraction
+  const jargon = /\b(stem|appropriate|application|relation|indicative|reference)\b/gi;
+  const jargonHits = (text.match(jargon) || []).length;
+  if (wordCount >= 6 && jargonHits / wordCount > 0.15) return true;
+  return false;
 };
 
 // A topic is "junk" if it's empty, punctuation-only, or just a question marker
@@ -196,8 +255,10 @@ const isJunkTopic = (topic) => {
 // Derive a clean topic label from an example question. Mirrors the same
 // logic in csvParser.js so built-in JSON rows (which only have
 // example_question, no separate topic column) get a usable topic too.
-const deriveTopicFromQuestion = (q) => {
-  if (!q) return '';
+const deriveTopicFromQuestion = (raw) => {
+  if (!raw) return '';
+  // Normalise smart/curly quotes first so the regexes match Cambridge CSV exports
+  const q = normaliseQuotes(raw);
   // Define 'Term' or Define "Term"
   let m = q.match(/^define\s+['"]([^'"]+)['"]/i);
   if (m) return m[1].trim();
@@ -259,8 +320,13 @@ export const buildQuestionBankFromCSV = (csvRows) => {
     const codes = detectBusinessCodes(cleanQ);
     const needsContext = wantsContext(cleanNotes) || codes.length > 0;
 
+    // If the cleaned model answer is still mostly mark-scheme jargon or
+    // cross-contaminated noise, blank it so the fallback answer kicks in
+    // (better to show generic guidance than a garbled "official" answer).
+    const usableAnswer = isJunkAnswer(cleanA) ? '' : cleanA;
+
     const exampleQuestion = anonymiseCodes(cleanQ, codes);
-    const modelAnswer     = anonymiseCodes(cleanA, codes);
+    const modelAnswer     = anonymiseCodes(usableAnswer, codes);
     const topic           = anonymiseCodes(cleanTopic, codes);
     const notes           = anonymiseCodes(cleanNotes, codes);
 
@@ -280,15 +346,24 @@ export const buildQuestionBankFromCSV = (csvRows) => {
       keywords: buildKeywords(`${modelAnswer} ${topic}`)
     };
   }).filter(c => {
-    // Drop concepts that can't produce a usable question.
-    // 1) Junk topic → would render as `Define '.'` / `Identify two examples of .`
+    // Drop concepts that can't produce a usable / fair question.
     if (isJunkTopic(c.topic)) return false;
-    // 2) Definition / list concepts NEED a model answer — that IS the answer
-    //    shown when a student gets it wrong. Without it the feedback panel
-    //    is useless. Outline/Explain/Justify can survive a weak model answer
-    //    because the question itself carries most of the learning.
-    if ((c.category === 'definition' || c.category === 'list')
-        && (!c.modelAnswer || c.modelAnswer.trim().length < 5)) return false;
+
+    // Definition / list concepts need SOME usable model answer (8+ chars,
+    // 2+ words) — that's the answer shown to the student when they get it
+    // wrong. isJunkAnswer already blanked out garbage; here we just drop
+    // the concept if blanking left nothing usable.
+    if (['definition', 'list'].includes(c.category)
+        && (!c.modelAnswer || c.modelAnswer.trim().length < 8)) return false;
+
+    // Outline-N-items questions are item-matched. If we have no model
+    // answer to compare against, the marker would unfairly score 0.
+    const cmd = (c.exampleQuestion || '').match(/^\s*(\w+)/);
+    const cmdWord = cmd ? cmd[1].toLowerCase() : '';
+    if (cmdWord === 'outline'
+        && /\b(two|three|four)\b/i.test(c.exampleQuestion || '')
+        && (!c.modelAnswer || c.modelAnswer.trim().length < 15)) return false;
+
     return true;
   });
 };
@@ -554,12 +629,18 @@ export const scoreAnswer = (studentAnswer, question) => {
   const issues = [];
 
   // ── AO2 Application — referenced the business? ──
+  // Match on the business name OR on ANY 4+ char word from its type, so
+  // "jewellery designer" type triggers when the student writes "jewellery"
+  // or "designer", and "service sector" triggers on "service" / "sector".
   let usedContext = false;
   if (question.business) {
     const lower = raw.toLowerCase();
     const bizName = (question.business.name || '').toLowerCase();
     const bizType = (question.business.type || '').toLowerCase();
-    if ((bizName && lower.includes(bizName)) || (bizType && lower.includes(bizType))) {
+    const bizWords = bizType.split(/[\s\-]+/).filter(w => w.length >= 4);
+    const nameMatch = bizName && lower.includes(bizName);
+    const wordMatch = bizWords.some(w => lower.includes(w));
+    if (nameMatch || wordMatch) {
       usedContext = true;
       if (['Outline', 'Explain', 'Justify'].includes(cmd)) {
         coverage = Math.min(1, coverage + 0.12);
